@@ -7,7 +7,9 @@ build-backend = "hatchling.build"
 # project are all `claudegate`. PyPI rejects `claudegate` as too similar to an
 # unrelated `claude-gate`, and the descriptive name is easier to find anyway.
 name = "claude-code-openai"
-version = "0.1.0"
+# One source of truth: src/claudegate/__init__.py. Two copies of a version
+# number drift, and the one that drifts is always the one users see.
+dynamic = ["version"]
 description = "OpenAI-compatible API server for the Claude Code CLI — streaming, tools, vision, and live session reuse."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -68,6 +70,9 @@ Issues = "https://github.com/mazamaka/claudegate/issues"
 
 [project.scripts]
 claudegate = "claudegate.cli:main"
+
+[tool.hatch.version]
+path = "src/claudegate/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/claudegate"]

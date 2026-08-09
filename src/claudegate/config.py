@@ -16,7 +16,7 @@ import tempfile
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions"]
@@ -144,24 +144,25 @@ class Settings(BaseSettings):
     def _upper(cls, v: str) -> str:
         return v.upper()
 
-    @model_validator(mode="after")
-    def _defaults(self) -> Settings:
-        # The CLI is spawned with this as its working directory. A path that
-        # does not exist makes the spawn fail with an errno the user never
-        # sees, so create it here instead of diagnosing it later.
+    def prepared(self) -> Settings:
+        """Settings with a workspace that exists on disk.
+
+        Deliberately *not* a validator. Constructing settings happens on import,
+        in `--help`, and in every test; creating a directory as a side effect of
+        that left one behind each time. The directory is made when a server is
+        actually about to run, and removed again when it stops.
+
+        The CLI is spawned with this as its working directory, and a path that
+        does not exist fails the spawn with an errno nobody can act on.
+        """
         if self.workspace:
-            path = self.workspace
-            os.makedirs(path, mode=0o700, exist_ok=True)
-        else:
-            # Not a fixed name under /tmp. The agent runs with permission bypass,
-            # so a predictable shared path lets any other user on the host
-            # pre-create it (or symlink it) and own the agent's cwd.
-            path = tempfile.mkdtemp(prefix="claudegate-")
-            # Ours to create, ours to remove: a service that restarts often
-            # would otherwise leave one of these behind every time.
-            object.__setattr__(self, "workspace_is_ephemeral", True)
-        object.__setattr__(self, "workspace", path)
-        return self
+            os.makedirs(self.workspace, mode=0o700, exist_ok=True)
+            return self
+        # Not a fixed name under /tmp. The agent runs with permission bypass, so
+        # a predictable shared path lets any other user on the host pre-create
+        # it (or symlink it) and own the agent's cwd.
+        path = tempfile.mkdtemp(prefix="claudegate-")
+        return self.model_copy(update={"workspace": path, "workspace_is_ephemeral": True})
 
     # ── derived ───────────────────────────────────────────────────────────
     @property

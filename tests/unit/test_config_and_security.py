@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import glob
 import os
+import shutil
 import tempfile
 
 import pytest
@@ -26,32 +28,49 @@ def test_aliases_resolve_and_unknown_models_pass_through() -> None:
     assert s.resolve_model(None) == "sonnet"
 
 
+def test_building_settings_does_not_touch_the_filesystem() -> None:
+    """`Settings()` runs on import, in --help and in every test.
+
+    Creating the workspace as a side effect of construction left one empty
+    directory behind per call.
+    """
+    before = set(glob.glob(os.path.join(tempfile.gettempdir(), "claudegate-*")))
+    Settings()
+    assert set(glob.glob(os.path.join(tempfile.gettempdir(), "claudegate-*"))) == before
+
+
 def test_a_workspace_we_created_is_ephemeral_and_one_we_were_given_is_not(
     tmp_path: object,
 ) -> None:
     """Restarting a service should not leave a directory behind every time,
     and it should never delete a directory the operator named."""
-    ours = Settings()
-    assert ours.workspace_is_ephemeral is True
-    assert os.path.isdir(str(ours.workspace))
+    ours = Settings().prepared()
+    try:
+        assert ours.workspace_is_ephemeral is True
+        assert os.path.isdir(str(ours.workspace))
+    finally:
+        shutil.rmtree(str(ours.workspace), ignore_errors=True)
 
-    theirs = Settings(workspace=str(tmp_path))
+    theirs = Settings(workspace=str(tmp_path)).prepared()
     assert theirs.workspace_is_ephemeral is False
 
 
 def test_the_workspace_is_created_so_the_cli_can_be_spawned_in_it(tmp_path: object) -> None:
     """A configured workspace that does not exist makes the spawn fail with an
     error no one can act on. Creating it is cheaper than diagnosing it."""
-    target = f"{tmp_path}/nested/workspace"
-    s = Settings(workspace=target)  # type: ignore[arg-type]
+    target = os.path.join(str(tmp_path), "nested", "workspace")
+    s = Settings(workspace=target).prepared()  # type: ignore[arg-type]
     assert s.workspace == target
     assert os.path.isdir(target)
 
 
 def test_a_workspace_is_chosen_when_none_is_configured() -> None:
-    s = Settings()
-    assert s.workspace is not None
-    assert os.path.isdir(s.workspace)
+    s = Settings().prepared()
+    try:
+        assert s.workspace is not None
+        assert os.path.isdir(s.workspace)
+    finally:
+        shutil.rmtree(str(s.workspace), ignore_errors=True)
 
 
 def test_several_keys_may_be_configured_at_once() -> None:

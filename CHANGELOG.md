@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1
+
+- Building a `Settings` object no longer creates a directory. It ran on import,
+  in `--help` and in every test, leaving an empty workspace behind each time;
+  the workspace is now created when a server starts and removed when it stops.
+- The version lives in one place instead of two.
+
 ## 0.1.0
 
 First release. Published as `claude-code-openai`; the package, the command and

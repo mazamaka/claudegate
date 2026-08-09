@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 __all__ = ["__version__", "create_app"]
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 
 def create_app(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]

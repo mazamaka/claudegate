@@ -15,6 +15,19 @@ import pytest
 from claudegate import cli
 
 
+def test_the_installed_version_matches_the_package() -> None:
+    """Two copies of a version number drift; this catches it at the seam."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    import claudegate
+
+    try:
+        installed = version("claude-code-openai")
+    except PackageNotFoundError:  # running from a source tree
+        pytest.skip("not installed")
+    assert installed == claudegate.__version__
+
+
 def test_every_subcommand_parses() -> None:
     parser = cli.build_parser()
     for argv in (

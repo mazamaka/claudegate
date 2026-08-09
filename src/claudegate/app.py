@@ -59,26 +59,31 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        manager = SessionManager(settings, transport_factory=transport_factory)
+        # The workspace is created here rather than when the settings object was
+        # built, so importing the package or reading a config never touches the
+        # filesystem. `prepared()` may return a copy, which is what the app runs
+        # with from now on.
+        active = settings.prepared()
+        manager = SessionManager(active, transport_factory=transport_factory)
         await manager.start()
-        app.state.settings = settings
+        app.state.settings = active
         app.state.manager = manager
         app.state.metrics = Metrics()
         log.info(
             "claudegate %s ready on %s:%s (model=%s, bare_mode=%s, auth=%s)",
             __version__,
-            settings.host,
-            settings.port,
-            settings.default_model,
-            settings.bare_mode,
-            "on" if settings.api_keys else "off",
+            active.host,
+            active.port,
+            active.default_model,
+            active.bare_mode,
+            "on" if active.api_keys else "off",
         )
         try:
             yield
         finally:
             await manager.aclose()
-            if settings.workspace_is_ephemeral and settings.workspace:
-                shutil.rmtree(settings.workspace, ignore_errors=True)
+            if active.workspace_is_ephemeral and active.workspace:
+                shutil.rmtree(active.workspace, ignore_errors=True)
 
     app = FastAPI(
         title="claudegate",

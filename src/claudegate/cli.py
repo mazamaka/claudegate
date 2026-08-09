@@ -234,7 +234,7 @@ async def _probe() -> Check:
     from .bridge.toolbelt import Toolbelt
     from .config import get_settings
 
-    settings = get_settings()
+    settings = get_settings().prepared()
     options = build_options(
         settings,
         model=settings.resolve_model(None),
