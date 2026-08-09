@@ -110,6 +110,15 @@ class Settings(BaseSettings):
     session_idle_ttl_s: float = 1800.0
     tool_wait_ttl_s: float = 600.0
     request_timeout_s: float = 900.0
+    first_event_timeout_s: float = 90.0
+    """How long a turn may produce nothing at all before it is called a failure.
+
+    Distinct from ``request_timeout_s``, which bounds a turn that is streaming.
+    A CLI that connects, accepts the message and then stays silent is almost
+    always an authentication problem, and 90s of silence is far past what a
+    model needs to emit its first token.
+    """
+
     cli_start_timeout_s: float = 120.0
     """How long to wait for a spawned CLI to finish its handshake. Without a
     bound, one wedged process would stall every request behind it."""

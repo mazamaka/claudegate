@@ -46,7 +46,10 @@ def test_image_block_from_data_url() -> None:
 
 def test_image_block_from_remote_url_is_passed_through() -> None:
     block = inbound.image_block("https://example.com/cat.jpg")
-    assert block == {"type": "image", "source": {"type": "url", "url": "https://example.com/cat.jpg"}}
+    assert block == {
+        "type": "image",
+        "source": {"type": "url", "url": "https://example.com/cat.jpg"},
+    }
 
 
 def test_image_block_rejects_unsupported_media_type() -> None:
@@ -55,7 +58,10 @@ def test_image_block_rejects_unsupported_media_type() -> None:
 
 def test_file_block_pdf_becomes_a_document() -> None:
     part = inbound.ContentPart.model_validate(
-        {"type": "file", "file": {"file_data": "data:application/pdf;base64,QQ==", "filename": "a.pdf"}}
+        {
+            "type": "file",
+            "file": {"file_data": "data:application/pdf;base64,QQ==", "filename": "a.pdf"},
+        }
     )
     assert inbound.file_block(part) == {
         "type": "document",
@@ -66,7 +72,10 @@ def test_file_block_pdf_becomes_a_document() -> None:
 def test_file_block_text_is_inlined_with_its_name() -> None:
     data = base64.b64encode(b"hello file").decode()
     part = inbound.ContentPart.model_validate(
-        {"type": "file", "file": {"file_data": f"data:text/plain;base64,{data}", "filename": "n.txt"}}
+        {
+            "type": "file",
+            "file": {"file_data": f"data:text/plain;base64,{data}", "filename": "n.txt"},
+        }
     )
     block = inbound.file_block(part)
     assert block is not None

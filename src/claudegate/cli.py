@@ -1,9 +1,9 @@
 """``claudegate`` — serve it, check it, prove it works.
 
-    claudegate serve            start the server
-    claudegate doctor           diagnose the host before you blame the server
-    claudegate smoke            run the end-to-end suite against a running one
-    claudegate install-service  render a systemd unit with the details right
+claudegate serve            start the server
+claudegate doctor           diagnose the host before you blame the server
+claudegate smoke            run the end-to-end suite against a running one
+claudegate install-service  render a systemd unit with the details right
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import platform
 import shutil
 import socket
 import subprocess
@@ -26,8 +27,18 @@ if TYPE_CHECKING:
 GREEN, RED, YELLOW, DIM, RESET = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
 
 
+def _supports_colour() -> bool:
+    if not sys.stdout.isatty() or os.environ.get("NO_COLOR"):
+        return False
+    if os.name != "nt":
+        return True
+    # Windows Terminal and ConEmu speak ANSI; the legacy console host only does
+    # when something has enabled VT for it, which we cannot assume.
+    return bool(os.environ.get("WT_SESSION") or os.environ.get("ANSICON"))
+
+
 def _colour(text: str, code: str) -> str:
-    return text if not sys.stdout.isatty() else f"{code}{text}{RESET}"
+    return f"{code}{text}{RESET}" if _supports_colour() else text
 
 
 # ────────────────────────────────────────────────────────────────── serve
@@ -89,16 +100,31 @@ class Check:
     fix: str = ""
 
 
+def _install_hint() -> str:
+    if os.name == "nt":
+        return "install the native Windows build (the npm claude.cmd shim will not work)"
+    return "npm install -g @anthropic-ai/claude-code"
+
+
 def _check_cli() -> Check:
     from .config import get_settings
 
     path = get_settings().cli_path or shutil.which("claude")
+    if not path and os.name == "nt":
+        path = shutil.which("claude.exe")
     if not path:
+        return Check("claude CLI", False, "not found on PATH", _install_hint())
+
+    # On Windows the SDK refuses to spawn a .bat/.cmd, because arguments would
+    # go through cmd.exe. npm installs exactly such a shim, so a check that only
+    # asked "is it on PATH?" would pass on a host where every turn fails.
+    if os.name == "nt" and os.path.splitext(path)[1].lower() in {".cmd", ".bat"}:
         return Check(
             "claude CLI",
             False,
-            "not found on PATH",
-            "npm install -g @anthropic-ai/claude-code",
+            f"{path} is a batch shim",
+            "the SDK will not execute .cmd/.bat — install the native build, "
+            "or point CLAUDEGATE_CLI_PATH at claude.exe",
         )
     try:
         out = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=30)
@@ -140,6 +166,25 @@ def _check_auth() -> Check:
         False,
         "no token found",
         "claude setup-token   # ~1 year, then export CLAUDE_CODE_OAUTH_TOKEN=…",
+    )
+
+
+def _check_platform() -> Check:
+    """Windows only: the event loop has to be able to spawn a subprocess.
+
+    ``SelectorEventLoop`` cannot, and a server started under one fails every
+    turn with a bare ``NotImplementedError``. ``claudegate serve`` picks the
+    right loop; this check is for anyone embedding the app elsewhere.
+    """
+    detail = f"{platform.system()} {platform.release()} (python {platform.python_version()})"
+    if os.name != "nt":
+        return Check("platform", True, detail)
+    return Check(
+        "platform",
+        True,
+        detail,
+        "on Windows the server needs a ProactorEventLoop to spawn the CLI; "
+        "`claudegate serve` selects it, other ASGI runners may not",
     )
 
 
@@ -198,14 +243,38 @@ async def _probe() -> Check:
         handler=None,
     )
     reply: list[str] = []
-    try:
+
+    async def turn() -> Check | None:
         async with ClaudeSDKClient(options) as client:
             await client.query("ping")
             async for message in client.receive_response():
                 if isinstance(message, AssistantMessage):
                     reply.extend(b.text for b in message.content if isinstance(b, TextBlock))
                 elif isinstance(message, ResultMessage) and message.is_error:
-                    return Check("live turn", False, "; ".join(message.errors or ["CLI error"]))
+                    # `errors` is often empty, and "CLI error" on its own has
+                    # never helped anyone. Say what the CLI actually reported.
+                    detail = "; ".join(message.errors) if message.errors else message.subtype
+                    return Check(
+                        "live turn",
+                        False,
+                        f"the CLI reported {detail}",
+                        "no tokens were billed, which usually means the credentials "
+                        "were rejected before the request was made",
+                    )
+        return None
+
+    try:
+        failure = await asyncio.wait_for(turn(), timeout=settings.first_event_timeout_s)
+        if failure is not None:
+            return failure
+    except (TimeoutError, asyncio.TimeoutError):
+        return Check(
+            "live turn",
+            False,
+            f"no reply within {settings.first_event_timeout_s:.0f}s",
+            "a CLI that connects and then goes quiet is nearly always auth: "
+            "check CLAUDE_CODE_OAUTH_TOKEN / ANTHROPIC_API_KEY",
+        )
     except Exception as exc:
         hint = ""
         if "root" in str(exc).lower():
@@ -222,6 +291,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     settings = get_settings()
     checks = [
         Check("python", sys.version_info >= (3, 10), sys.version.split()[0]),
+        _check_platform(),
         _check_node(),
         _check_cli(),
         _check_auth(),
@@ -232,7 +302,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     if not args.offline:
         checks.append(asyncio.run(_probe()))
 
-    print(f"claudegate doctor {DIM}({__version__}){RESET}\n")
+    print(f"claudegate doctor {_colour(f'({__version__})', DIM)}\n")
     failed = 0
     for check in checks:
         mark = _colour("✓", GREEN) if check.ok else _colour("✗", RED)
@@ -313,6 +383,19 @@ WantedBy=multi-user.target
 
 
 def cmd_install_service(args: argparse.Namespace) -> int:
+    if sys.platform != "linux" and not args.force:
+        # Writing a systemd unit on a host with no systemd produces a file that
+        # looks right and does nothing. Say so instead.
+        def say(line: str) -> None:
+            print(line, file=sys.stderr)
+
+        say(f"install-service renders a systemd unit; this host is {platform.system()}.")
+        if sys.platform == "darwin":
+            say("On macOS use a launchd plist, or run `claudegate serve` under a supervisor.")
+        elif os.name == "nt":
+            say("On Windows use NSSM, a Scheduled Task, or run `claudegate serve` directly.")
+        say("Pass --force to render the unit anyway (e.g. when targeting a Linux host).")
+        return 2
     executable = args.executable or shutil.which("claudegate") or f"{sys.executable} -m claudegate"
     unit = UNIT.format(
         user=args.user,
@@ -349,8 +432,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument(
         "--no-bare",
         action="store_true",
-        help="expose Claude Code as an autonomous agent (file and shell tools), "
-        "not a plain model",
+        help="expose Claude Code as an autonomous agent (file and shell tools), not a plain model",
     )
     serve.set_defaults(func=cmd_serve)
 
@@ -378,6 +460,11 @@ def build_parser() -> argparse.ArgumentParser:
     unit.add_argument("--env-file", default="/opt/claudegate/.env")
     unit.add_argument("--executable")
     unit.add_argument("--output", default="-", help="path to write, or - for stdout")
+    unit.add_argument(
+        "--force",
+        action="store_true",
+        help="render the unit even when this host does not run systemd",
+    )
     unit.set_defaults(func=cmd_install_service)
 
     return parser

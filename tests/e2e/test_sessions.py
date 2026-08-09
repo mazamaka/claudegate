@@ -20,7 +20,9 @@ async def test_a_follow_up_turn_sends_only_the_new_message() -> None:
         first = await client.post("/v1/chat/completions", json=chat(messages=messages))
         assert first.headers["x-claudegate-mode"] == "fresh"
 
-        messages.append({"role": "assistant", "content": first.json()["choices"][0]["message"]["content"]})
+        messages.append(
+            {"role": "assistant", "content": first.json()["choices"][0]["message"]["content"]}
+        )
         messages.append({"role": "user", "content": "second question"})
         second = await client.post("/v1/chat/completions", json=chat(messages=messages))
 
@@ -52,7 +54,11 @@ async def test_two_callers_with_the_same_history_never_share_a_conversation() ->
 
         await client.post("/v1/chat/completions", json=chat(messages=opening), headers=alice)
 
-        follow_up = [*opening, {"role": "assistant", "content": "a"}, {"role": "user", "content": "more"}]
+        follow_up = [
+            *opening,
+            {"role": "assistant", "content": "a"},
+            {"role": "user", "content": "more"},
+        ]
         # Same prompt, same history, different caller.
         intruder = await client.post(
             "/v1/chat/completions", json=chat(messages=follow_up), headers=bob
@@ -72,10 +78,12 @@ async def test_one_key_serving_many_end_users_is_partitioned_by_the_user_field()
         opening: list[dict[str, Any]] = [{"role": "user", "content": "hello"}]
         await client.post("/v1/chat/completions", json=chat(messages=opening, user="alice"))
 
-        follow_up = [*opening, {"role": "assistant", "content": "a"}, {"role": "user", "content": "more"}]
-        other = await client.post(
-            "/v1/chat/completions", json=chat(messages=follow_up, user="bob")
-        )
+        follow_up = [
+            *opening,
+            {"role": "assistant", "content": "a"},
+            {"role": "user", "content": "more"},
+        ]
+        other = await client.post("/v1/chat/completions", json=chat(messages=follow_up, user="bob"))
         same = await client.post(
             "/v1/chat/completions", json=chat(messages=follow_up, user="alice")
         )
@@ -101,10 +109,14 @@ async def test_a_conversation_is_only_continued_by_whoever_received_its_answer()
         assert primed.headers["x-claudegate-mode"] == "fresh"
 
         # Same opening, but the caller never saw the answer: no continuation.
-        guessed = [*opening, {"role": "assistant", "content": "ok"}, {"role": "user", "content": "next"}]
-        assert (
-            await client.post("/v1/chat/completions", json=chat(messages=guessed))
-        ).headers["x-claudegate-mode"] == "fresh"
+        guessed = [
+            *opening,
+            {"role": "assistant", "content": "ok"},
+            {"role": "user", "content": "next"},
+        ]
+        assert (await client.post("/v1/chat/completions", json=chat(messages=guessed))).headers[
+            "x-claudegate-mode"
+        ] == "fresh"
 
         # The caller who did receive it continues, even after trimming it.
         proven = [
@@ -112,9 +124,9 @@ async def test_a_conversation_is_only_continued_by_whoever_received_its_answer()
             {"role": "assistant", "content": "  the real answer\n"},
             {"role": "user", "content": "next"},
         ]
-        assert (
-            await client.post("/v1/chat/completions", json=chat(messages=proven))
-        ).headers["x-claudegate-mode"] == "reused"
+        assert (await client.post("/v1/chat/completions", json=chat(messages=proven))).headers[
+            "x-claudegate-mode"
+        ] == "reused"
         assert len(harness.transports) == 2
 
 
@@ -238,7 +250,11 @@ async def test_changing_the_model_or_the_system_prompt_starts_a_new_conversation
         ]
         await client.post("/v1/chat/completions", json=chat(messages=base))
 
-        follow_up = [*base, {"role": "assistant", "content": "a"}, {"role": "user", "content": "more"}]
+        follow_up = [
+            *base,
+            {"role": "assistant", "content": "a"},
+            {"role": "user", "content": "more"},
+        ]
         other_model = await client.post(
             "/v1/chat/completions", json=chat(messages=follow_up, model="opus")
         )
@@ -248,9 +264,7 @@ async def test_changing_the_model_or_the_system_prompt_starts_a_new_conversation
             {"role": "system", "content": "Be verbose."},
             *follow_up[1:],
         ]
-        other_prompt = await client.post(
-            "/v1/chat/completions", json=chat(messages=changed_prompt)
-        )
+        other_prompt = await client.post("/v1/chat/completions", json=chat(messages=changed_prompt))
         assert other_prompt.headers["x-claudegate-mode"] == "fresh"
         assert len(harness.transports) == 3
 
@@ -290,7 +304,9 @@ async def test_tool_results_for_a_lost_conversation_are_rebuilt_not_refused() ->
             },
             {"role": "tool", "tool_call_id": "call_from_a_previous_life", "content": "512"},
         ]
-        response = await client.post("/v1/chat/completions", json=chat(tools=TOOLS, messages=messages))
+        response = await client.post(
+            "/v1/chat/completions", json=chat(tools=TOOLS, messages=messages)
+        )
 
         assert response.status_code == 200
         assert response.headers["x-claudegate-mode"] == "rebuilt"

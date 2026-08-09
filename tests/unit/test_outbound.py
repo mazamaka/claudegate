@@ -102,7 +102,10 @@ def test_completion_with_tool_calls_has_null_content_and_the_right_finish_reason
 def test_completion_carries_reasoning_when_there_is_any() -> None:
     payload = outbound.completion("id", "m", content="a", reasoning="because")
     assert payload["choices"][0]["message"]["reasoning_content"] == "because"
-    assert "reasoning_content" not in outbound.completion("id", "m", content="a")["choices"][0]["message"]
+    assert (
+        "reasoning_content"
+        not in outbound.completion("id", "m", content="a")["choices"][0]["message"]
+    )
 
 
 def test_call_id_is_derived_from_the_anthropic_id_and_is_stable() -> None:

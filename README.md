@@ -7,7 +7,9 @@
 
 <p align="center">
   <a href="https://github.com/mazamaka/claudegate/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/mazamaka/claudegate/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://pypi.org/project/claudegate/"><img alt="PyPI" src="https://img.shields.io/pypi/v/claudegate?color=3775A9"></a>
   <img alt="python" src="https://img.shields.io/badge/python-3.10%20%E2%80%93%203.13-3776AB">
+  <img alt="platforms" src="https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-lightgrey">
   <img alt="typing" src="https://img.shields.io/badge/mypy-strict-2A6DB2">
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-blue"></a>
 </p>
@@ -174,7 +176,8 @@ async def scenario(turn: Turn) -> None:
 app = create_app(Settings(), transport_factory=lambda: FakeClaudeCLI(scenario))
 ```
 
-That is how the 102 tests in this repo run in under a second.
+That is how the 131 tests in this repo run in a couple of seconds — on Linux,
+macOS and Windows alike, on a runner with no CLI installed.
 
 ## Verifying a deployment
 
@@ -246,19 +249,47 @@ silently returning one choice would be worse. `reasoning_effort` is mapped onto
 the agent's thinking budget. Details in
 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md).
 
+- **Credentials that expired.** The CLI starts, accepts the message and then
+  emits nothing at all — which read as a timeout, and sent people to look at
+  their network. A turn that produces no output within
+  `FIRST_EVENT_TIMEOUT_S` is reported as what it almost always is: auth.
+
 ## Requirements
 
 - Python 3.10+
 - Node.js 18+ and the [`claude`][cli] CLI on `PATH`, logged in
-- Linux or macOS
+
+## Platforms
+
+| Platform | Status |
+|---|---|
+| Linux | Supported, and what the live suite runs on. |
+| macOS | Supported. The test suite runs on the macOS runner in CI. |
+| Windows | Supported, with one caveat below. The suite runs on the Windows runner in CI. |
+
+The suite is hermetic — it fakes the CLI — so a green Windows job proves the
+server, the wire format and the bridge are portable. It does not exercise a
+real `claude.exe`; that part is verified on Linux.
+
+**Windows caveat.** `npm install -g @anthropic-ai/claude-code` installs a
+`claude.cmd` shim, and the SDK refuses to execute `.bat`/`.cmd` (arguments
+would pass through `cmd.exe`). Use the native build, or point
+`CLAUDEGATE_CLI_PATH` at `claude.exe`. `claudegate doctor` checks for exactly
+this rather than reporting a shim as usable. The server also needs a
+`ProactorEventLoop` to spawn the CLI — `claudegate serve` selects one; if you
+mount the ASGI app in another runner on Windows, make sure it does too.
+
+`install-service` renders a systemd unit, so it refuses to run off Linux unless
+you pass `--force` (useful when generating a unit for a remote host). On macOS
+use launchd; on Windows use NSSM or a Scheduled Task.
 
 ## Development
 
 ```bash
 pip install -e ".[dev]"
-pytest                                    # 102 tests, no CLI needed, < 1s
+pytest                                    # 131 tests, no CLI needed, ~3s
 CLAUDEGATE_LIVE_TESTS=1 pytest tests/live # the real thing
-ruff check src tests && mypy
+ruff check src tests && ruff format --check src tests && mypy
 ```
 
 Built on Anthropic's official [Claude Agent SDK][sdk]. Architecture notes are in

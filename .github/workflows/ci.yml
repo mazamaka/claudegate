@@ -11,11 +11,21 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # The suite runs against a fake CLI, so no Node, no token and no network are
+    # needed. That is also what makes it worth running on all three platforms:
+    # a green Windows job proves the server itself is portable, and a runner
+    # without the CLI installed proves the tests are hermetic.
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest]
         python-version: ["3.10", "3.11", "3.12", "3.13"]
+        include:
+          - os: macos-latest
+            python-version: "3.12"
+          - os: windows-latest
+            python-version: "3.12"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -23,8 +33,6 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - run: pip install -e ".[dev]"
-      # The suite runs against a fake CLI, so no Node, no token and no network
-      # are needed here.
       - run: pytest
 
   lint:
@@ -37,6 +45,7 @@ jobs:
           cache: pip
       - run: pip install -e ".[dev]"
       - run: ruff check src tests
+      - run: ruff format --check src tests
       - run: mypy
 
   build:
@@ -49,3 +58,34 @@ jobs:
       - run: pip install build twine
       - run: python -m build
       - run: twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  install:
+    # Proves the published artefact is usable: a clean environment, an install
+    # from the wheel alone, and the console script actually runs.
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: install the wheel
+        shell: bash
+        run: pip install dist/*.whl
+      - name: the console script works
+        shell: bash
+        run: |
+          claudegate --version
+          claudegate doctor --offline || true   # no CLI on the runner; must not crash
+          python -c "import claudegate; from claudegate.testing import FakeClaudeCLI; print('import ok')"

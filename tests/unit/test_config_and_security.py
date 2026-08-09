@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 
 import pytest
 from fastapi import Request
@@ -13,7 +14,8 @@ from claudegate.security import check_request, extract_key
 
 
 def settings(**kw: object) -> Settings:
-    return Settings(**{"workspace": "/tmp/claudegate-tests", **kw})  # type: ignore[arg-type]
+    workspace = os.path.join(tempfile.gettempdir(), "claudegate-tests")
+    return Settings(**{"workspace": workspace, **kw})  # type: ignore[arg-type]
 
 
 def test_aliases_resolve_and_unknown_models_pass_through() -> None:

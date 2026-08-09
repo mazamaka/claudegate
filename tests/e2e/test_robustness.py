@@ -94,9 +94,7 @@ async def test_a_second_round_of_tool_calls_still_gets_its_results() -> None:
             messages.append(choice["message"])
             messages.append({"role": "tool", "tool_call_id": call["id"], "content": value})
 
-        final = await client.post(
-            "/v1/chat/completions", json=chat(tools=TOOLS, messages=messages)
-        )
+        final = await client.post("/v1/chat/completions", json=chat(tools=TOOLS, messages=messages))
         answer = final.json()["choices"][0]["message"]["content"] or ""
 
     assert answer == "db=111 cache=222", f"a tool result was lost: {answer!r}"
@@ -142,6 +140,48 @@ async def test_a_finished_run_releases_a_handler_still_waiting_on_it() -> None:
 
     assert released is not None, "the parked handler was orphaned"
     assert "the run ended" in released
+
+
+async def test_a_silent_cli_is_reported_as_credentials_not_as_slowness() -> None:
+    """The failure mode a dead token actually produces.
+
+    The CLI starts, accepts the message, and then emits nothing at all. Calling
+    that "timed out waiting for the model" sends people to look at their
+    network; it is nearly always authentication.
+    """
+
+    async def says_nothing(turn: Turn) -> None:
+        await asyncio.sleep(30)  # far longer than the deadline under test
+
+    async with gateway(says_nothing, first_event_timeout_s=0.3, request_timeout_s=30.0) as (
+        client,
+        harness,
+    ):
+        response = await client.post("/v1/chat/completions", json=chat())
+
+    assert response.status_code == 502
+    message = response.json()["error"]["message"]
+    assert "authentication" in message
+    assert "doctor" in message
+    assert harness.manager.live == 0, "a conversation that never spoke was kept for reuse"
+
+
+async def test_a_turn_that_started_streaming_is_not_blamed_on_credentials() -> None:
+    """Once output is flowing, silence is slowness, and the deadline that
+    applies is the request timeout."""
+
+    async def starts_then_stalls(turn: Turn) -> None:
+        await turn.say("thinking")
+        await asyncio.sleep(30)
+
+    async with gateway(starts_then_stalls, first_event_timeout_s=0.3, request_timeout_s=1.0) as (
+        client,
+        _harness,
+    ):
+        response = await client.post("/v1/chat/completions", json=chat())
+
+    assert response.status_code == 504
+    assert "Timed out" in response.json()["error"]["message"]
 
 
 async def test_a_non_ascii_api_key_is_rejected_not_crashed() -> None:

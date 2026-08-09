@@ -24,6 +24,7 @@ import asyncio
 import contextlib
 import itertools
 import json
+import tempfile
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -78,36 +79,64 @@ class Turn:
 
     async def think(self, text: str) -> None:
         """Stream a block of reasoning."""
-        await self._cli.emit_stream({"type": "content_block_start", "index": 0,
-                                     "content_block": {"type": "thinking", "thinking": ""}})
-        await self._cli.emit_stream({"type": "content_block_delta", "index": 0,
-                                     "delta": {"type": "thinking_delta", "thinking": text}})
+        await self._cli.emit_stream(
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "thinking", "thinking": ""},
+            }
+        )
+        await self._cli.emit_stream(
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "thinking_delta", "thinking": text},
+            }
+        )
         await self._cli.emit_stream({"type": "content_block_stop", "index": 0})
 
     async def say(self, text: str, *, chunks: int = 2) -> None:
         """Stream an assistant answer, split across ``chunks`` deltas."""
-        await self._cli.emit_stream({
-            "type": "message_start",
-            "message": {
-                "id": self._cli.next_message_id(), "model": self._cli.model,
-                "type": "message", "role": "assistant", "content": [], "stop_reason": None,
-                "usage": {"input_tokens": self._cli.usage["input_tokens"], "output_tokens": 0},
-            },
-        })
-        await self._cli.emit_stream({"type": "content_block_start", "index": 0,
-                                     "content_block": {"type": "text", "text": ""}})
+        await self._cli.emit_stream(
+            {
+                "type": "message_start",
+                "message": {
+                    "id": self._cli.next_message_id(),
+                    "model": self._cli.model,
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "stop_reason": None,
+                    "usage": {"input_tokens": self._cli.usage["input_tokens"], "output_tokens": 0},
+                },
+            }
+        )
+        await self._cli.emit_stream(
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "text", "text": ""},
+            }
+        )
         size = max(1, len(text) // max(1, chunks))
         for start in range(0, len(text), size):
             piece = text[start : start + size]
-            await self._cli.emit_stream({
-                "type": "content_block_delta", "index": 0,
-                "delta": {"type": "text_delta", "text": piece},
-            })
+            await self._cli.emit_stream(
+                {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "text_delta", "text": piece},
+                }
+            )
             await asyncio.sleep(0)
         await self._cli.emit_stream({"type": "content_block_stop", "index": 0})
-        await self._cli.emit_stream({"type": "message_delta",
-                                     "delta": {"stop_reason": "end_turn"},
-                                     "usage": self._cli.usage})
+        await self._cli.emit_stream(
+            {
+                "type": "message_delta",
+                "delta": {"stop_reason": "end_turn"},
+                "usage": self._cli.usage,
+            }
+        )
         await self._cli.emit_stream({"type": "message_stop"})
         await self._cli.emit_assistant([{"type": "text", "text": text}], stop_reason="end_turn")
 
@@ -140,27 +169,52 @@ class Turn:
         for name, arguments in calls:
             full_name = name if name.startswith("mcp__") else f"mcp__client__{name}"
             names.append((full_name, arguments))
-            blocks.append({"type": "tool_use", "id": self._cli.next_tool_id(),
-                           "name": full_name, "input": arguments})
+            blocks.append(
+                {
+                    "type": "tool_use",
+                    "id": self._cli.next_tool_id(),
+                    "name": full_name,
+                    "input": arguments,
+                }
+            )
         await self._cli.emit_assistant(blocks, stop_reason="tool_use")
         # The real CLI dispatches them one at a time, in order.
         return [await self._cli.invoke_tool(n, a) for n, a in names]
 
     async def fail(self, message: str, *, api_status: int | None = None) -> None:
-        await self._cli.emit({"type": "result", "subtype": "error_during_execution",
-                              "session_id": self._cli.session_id, "duration_ms": 1,
-                              "duration_api_ms": 1, "is_error": True, "num_turns": 1,
-                              "result": message, "errors": [message],
-                              "api_error_status": api_status, "usage": self._cli.usage,
-                              "total_cost_usd": 0.0})
+        await self._cli.emit(
+            {
+                "type": "result",
+                "subtype": "error_during_execution",
+                "session_id": self._cli.session_id,
+                "duration_ms": 1,
+                "duration_api_ms": 1,
+                "is_error": True,
+                "num_turns": 1,
+                "result": message,
+                "errors": [message],
+                "api_error_status": api_status,
+                "usage": self._cli.usage,
+                "total_cost_usd": 0.0,
+            }
+        )
         self.ended = True
 
     async def end(self, *, result: str = "", cost: float = 0.001) -> None:
-        await self._cli.emit({"type": "result", "subtype": "success",
-                              "session_id": self._cli.session_id, "duration_ms": 5,
-                              "duration_api_ms": 4, "is_error": False, "num_turns": 1,
-                              "result": result, "usage": self._cli.usage,
-                              "total_cost_usd": cost})
+        await self._cli.emit(
+            {
+                "type": "result",
+                "subtype": "success",
+                "session_id": self._cli.session_id,
+                "duration_ms": 5,
+                "duration_api_ms": 4,
+                "is_error": False,
+                "num_turns": 1,
+                "result": result,
+                "usage": self._cli.usage,
+                "total_cost_usd": cost,
+            }
+        )
         self.ended = True
 
 
@@ -242,11 +296,18 @@ class FakeClaudeCLI(Transport):
         if self.connect_delay:
             await asyncio.sleep(self.connect_delay)
         self._ready = True
-        await self.emit({
-            "type": "system", "subtype": "init", "session_id": self.session_id,
-            "cwd": "/tmp", "tools": self.available_tools, "mcp_servers": [],
-            "model": self.model, "uuid": self.next_uuid(),
-        })
+        await self.emit(
+            {
+                "type": "system",
+                "subtype": "init",
+                "session_id": self.session_id,
+                "cwd": tempfile.gettempdir(),
+                "tools": self.available_tools,
+                "mcp_servers": [],
+                "model": self.model,
+                "uuid": self.next_uuid(),
+            }
+        )
 
     async def write(self, data: str) -> None:
         for line in data.strip().splitlines():
@@ -308,21 +369,34 @@ class FakeClaudeCLI(Transport):
     async def emit_assistant(
         self, content: list[dict[str, Any]], *, stop_reason: str = "end_turn"
     ) -> None:
-        await self._out.put({
-            "type": "assistant", "session_id": self.session_id, "uuid": self.next_uuid(),
-            "parent_tool_use_id": None,
-            "message": {
-                "id": self.next_message_id(), "model": self.model, "role": "assistant",
-                "type": "message", "content": content, "stop_reason": stop_reason,
-                "usage": self.usage,
-            },
-        })
+        await self._out.put(
+            {
+                "type": "assistant",
+                "session_id": self.session_id,
+                "uuid": self.next_uuid(),
+                "parent_tool_use_id": None,
+                "message": {
+                    "id": self.next_message_id(),
+                    "model": self.model,
+                    "role": "assistant",
+                    "type": "message",
+                    "content": content,
+                    "stop_reason": stop_reason,
+                    "usage": self.usage,
+                },
+            }
+        )
 
     async def emit_stream(self, event: dict[str, Any]) -> None:
-        await self._out.put({
-            "type": "stream_event", "uuid": self.next_uuid(),
-            "session_id": self.session_id, "event": event, "parent_tool_use_id": None,
-        })
+        await self._out.put(
+            {
+                "type": "stream_event",
+                "uuid": self.next_uuid(),
+                "session_id": self.session_id,
+                "event": event,
+                "parent_tool_use_id": None,
+            }
+        )
 
     async def _answer_control(self, message: dict[str, Any]) -> None:
         request_id = message.get("request_id")
@@ -330,10 +404,12 @@ class FakeClaudeCLI(Transport):
         response: dict[str, Any] = {}
         if subtype == "initialize":
             response = {"commands": [], "output_style": "default"}
-        await self.emit({
-            "type": "control_response",
-            "response": {"subtype": "success", "request_id": request_id, "response": response},
-        })
+        await self.emit(
+            {
+                "type": "control_response",
+                "response": {"subtype": "success", "request_id": request_id, "response": response},
+            }
+        )
 
     def _resolve_control(self, message: dict[str, Any]) -> None:
         response = message.get("response") or {}
@@ -346,18 +422,22 @@ class FakeClaudeCLI(Transport):
         request_id = self._next_request_id()
         future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
         self._pending[request_id] = future
-        await self.emit({
-            "type": "control_request",
-            "request_id": request_id,
-            "request": {
-                "subtype": "mcp_message",
-                "server_name": "client",
-                "message": {
-                    "jsonrpc": "2.0", "id": next(self._ids), "method": "tools/call",
-                    "params": {"name": full_name.split("__")[-1], "arguments": arguments},
+        await self.emit(
+            {
+                "type": "control_request",
+                "request_id": request_id,
+                "request": {
+                    "subtype": "mcp_message",
+                    "server_name": "client",
+                    "message": {
+                        "jsonrpc": "2.0",
+                        "id": next(self._ids),
+                        "method": "tools/call",
+                        "params": {"name": full_name.split("__")[-1], "arguments": arguments},
+                    },
                 },
-            },
-        })
+            }
+        )
         response = await future
         if response.get("subtype") == "error":
             return f"[tool error] {response.get('error')}"

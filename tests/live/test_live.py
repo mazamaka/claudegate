@@ -64,7 +64,10 @@ async def test_the_model_really_reads_the_image(live_client) -> None:  # type: i
                 {
                     "role": "user",
                     "content": [
-                        {"type": "image_url", "image_url": {"url": data_url(render_code_png(code))}},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": data_url(render_code_png(code))},
+                        },
                         {"type": "text", "text": "What 4-digit number is this? Digits only."},
                     ],
                 },
@@ -95,7 +98,9 @@ async def test_a_real_tool_loop_is_resumed_not_replayed(live_client) -> None:  #
         {"role": "system", "content": "Use the tools you are given. Be terse."},
         {"role": "user", "content": "What is the status code of the db subsystem?"},
     ]
-    first = await live_client.post("/v1/chat/completions", json=chat(messages=messages, tools=tools))
+    first = await live_client.post(
+        "/v1/chat/completions", json=chat(messages=messages, tools=tools)
+    )
     assert first.status_code == 200
     choice = first.json()["choices"][0]
     assert choice["finish_reason"] == "tool_calls"
@@ -103,7 +108,9 @@ async def test_a_real_tool_loop_is_resumed_not_replayed(live_client) -> None:  #
 
     messages.append(choice["message"])
     messages.append({"role": "tool", "tool_call_id": call["id"], "content": code})
-    second = await live_client.post("/v1/chat/completions", json=chat(messages=messages, tools=tools))
+    second = await live_client.post(
+        "/v1/chat/completions", json=chat(messages=messages, tools=tools)
+    )
 
     assert second.status_code == 200
     assert second.headers["x-claudegate-mode"] == "continued"
@@ -119,7 +126,9 @@ async def test_a_follow_up_reuses_the_conversation(live_client) -> None:  # type
     first = await live_client.post("/v1/chat/completions", json=chat(messages=messages))
     assert first.status_code == 200
 
-    messages.append({"role": "assistant", "content": first.json()["choices"][0]["message"]["content"]})
+    messages.append(
+        {"role": "assistant", "content": first.json()["choices"][0]["message"]["content"]}
+    )
     messages.append({"role": "user", "content": "What number did I ask you to remember?"})
     second = await live_client.post("/v1/chat/completions", json=chat(messages=messages))
 

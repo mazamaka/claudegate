@@ -130,9 +130,7 @@ class SessionManager:
             sessions = list(self._sessions.values())
             self._sessions.clear()
         pending = [*self._closing]
-        await asyncio.gather(
-            *(s.aclose() for s in sessions), *pending, return_exceptions=True
-        )
+        await asyncio.gather(*(s.aclose() for s in sessions), *pending, return_exceptions=True)
 
     @property
     def live(self) -> int:
@@ -335,9 +333,7 @@ class SessionManager:
         if rebuilt:
             self.stats.rebuilt += 1
 
-        blocks = inbound.render_history(
-            conversation, attachments=self.settings.forward_attachments
-        )
+        blocks = inbound.render_history(conversation, attachments=self.settings.forward_attachments)
         return Lease(
             session=session,
             manager=self,

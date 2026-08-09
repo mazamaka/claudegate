@@ -107,7 +107,7 @@ class Toolbelt:
 
     def openai_name(self, mcp_name: str) -> str | None:
         """``mcp__client__get_weather`` → ``get_weather`` as the client named it."""
-        short = mcp_name[len(TOOL_PREFIX):] if mcp_name.startswith(TOOL_PREFIX) else mcp_name
+        short = mcp_name[len(TOOL_PREFIX) :] if mcp_name.startswith(TOOL_PREFIX) else mcp_name
         return self._by_mcp_name.get(short)
 
     def owns(self, mcp_name: str) -> bool:

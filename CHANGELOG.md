@@ -13,6 +13,8 @@ First release.
 - Tool results for a conversation the server no longer holds rebuild it from the
   request history rather than failing a turn the client cannot retry.
 - `claudegate doctor`, `claudegate smoke` and `claudegate install-service`.
+- Linux, macOS and Windows. The hermetic suite runs on all three in CI, and the
+  built wheel is installed and executed on all three before release.
 - `claudegate.testing`: a fake CLI speaking the real control protocol, so
   integrations can be tested without a CLI, a token or a network. It can also
   be told to be slow (`connect_delay`) or to race (`eager_tools`), because the

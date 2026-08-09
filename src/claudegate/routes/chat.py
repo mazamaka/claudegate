@@ -153,7 +153,10 @@ async def _stream_turn(
             outbound.chunk(cid, model, {"role": "assistant", "content": ""}, created=created)
         )
 
-        async for event in lease.session.stream_turn(timeout=settings.request_timeout_s):
+        async for event in lease.session.stream_turn(
+            timeout=settings.request_timeout_s,
+            first_event_timeout=settings.first_event_timeout_s,
+        ):
             if isinstance(event, TextDelta):
                 if first_token_at is None:
                     first_token_at = time.monotonic()
@@ -217,7 +220,10 @@ async def _collect(
 
     async with lease:
         await lease.dispatch()
-        async for event in lease.session.stream_turn(timeout=settings.request_timeout_s):
+        async for event in lease.session.stream_turn(
+            timeout=settings.request_timeout_s,
+            first_event_timeout=settings.first_event_timeout_s,
+        ):
             if isinstance(event, TextDelta):
                 text.append(event.text)
             elif isinstance(event, ReasoningDelta):

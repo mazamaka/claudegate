@@ -60,12 +60,16 @@ async def test_the_result_resumes_the_same_conversation_without_replaying_it() -
     """
     async with gateway(one_call) as (client, harness):
         messages: list[dict[str, Any]] = [{"role": "user", "content": "db status?"}]
-        first = (await client.post("/v1/chat/completions", json=chat(tools=TOOLS, messages=messages))).json()
+        first = (
+            await client.post("/v1/chat/completions", json=chat(tools=TOOLS, messages=messages))
+        ).json()
         call = first["choices"][0]["message"]["tool_calls"][0]
 
         messages.append(first["choices"][0]["message"])
         messages.append({"role": "tool", "tool_call_id": call["id"], "content": "512"})
-        response = await client.post("/v1/chat/completions", json=chat(tools=TOOLS, messages=messages))
+        response = await client.post(
+            "/v1/chat/completions", json=chat(tools=TOOLS, messages=messages)
+        )
         body = response.json()
 
         assert response.headers["x-claudegate-mode"] == "continued"
@@ -77,11 +81,14 @@ async def test_the_result_resumes_the_same_conversation_without_replaying_it() -
 
 
 async def test_tool_calls_stream_as_deltas_and_finish_as_tool_calls() -> None:
-    async with gateway(one_call) as (client, _), client.stream(
-        "POST",
-        "/v1/chat/completions",
-        json=chat(stream=True, tools=TOOLS, messages=[{"role": "user", "content": "db?"}]),
-    ) as r:
+    async with (
+        gateway(one_call) as (client, _),
+        client.stream(
+            "POST",
+            "/v1/chat/completions",
+            json=chat(stream=True, tools=TOOLS, messages=[{"role": "user", "content": "db?"}]),
+        ) as r,
+    ):
         frames = await sse_frames(r)
 
     payloads = [json.loads(f) for f in frames[:-1]]
@@ -107,7 +114,9 @@ async def test_several_tools_in_one_turn_are_all_returned_and_all_answered() -> 
 
     async with gateway(three_calls) as (client, harness):
         messages: list[dict[str, Any]] = [{"role": "user", "content": "all statuses?"}]
-        first = (await client.post("/v1/chat/completions", json=chat(tools=TOOLS, messages=messages))).json()
+        first = (
+            await client.post("/v1/chat/completions", json=chat(tools=TOOLS, messages=messages))
+        ).json()
         calls = first["choices"][0]["message"]["tool_calls"]
         assert len(calls) == 3
         assert [json.loads(c["function"]["arguments"])["subsystem"] for c in calls] == [
@@ -119,7 +128,9 @@ async def test_several_tools_in_one_turn_are_all_returned_and_all_answered() -> 
         messages.append(first["choices"][0]["message"])
         for call, value in zip(calls, ["1", "2", "3"], strict=True):
             messages.append({"role": "tool", "tool_call_id": call["id"], "content": value})
-        body = (await client.post("/v1/chat/completions", json=chat(tools=TOOLS, messages=messages))).json()
+        body = (
+            await client.post("/v1/chat/completions", json=chat(tools=TOOLS, messages=messages))
+        ).json()
 
         assert len(harness.cli.turns) == 1
 
@@ -137,12 +148,16 @@ async def test_a_client_that_answers_only_some_calls_does_not_wedge_the_server()
 
     async with gateway(two_calls) as (client, _):
         messages: list[dict[str, Any]] = [{"role": "user", "content": "statuses?"}]
-        first = (await client.post("/v1/chat/completions", json=chat(tools=TOOLS, messages=messages))).json()
+        first = (
+            await client.post("/v1/chat/completions", json=chat(tools=TOOLS, messages=messages))
+        ).json()
         calls = first["choices"][0]["message"]["tool_calls"]
 
         messages.append(first["choices"][0]["message"])
         messages.append({"role": "tool", "tool_call_id": calls[0]["id"], "content": "only-one"})
-        body = (await client.post("/v1/chat/completions", json=chat(tools=TOOLS, messages=messages))).json()
+        body = (
+            await client.post("/v1/chat/completions", json=chat(tools=TOOLS, messages=messages))
+        ).json()
 
     content = body["choices"][0]["message"]["content"]
     assert content.startswith("only-one | ")

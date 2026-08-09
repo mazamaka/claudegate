@@ -8,6 +8,8 @@ Every test in ``tests/unit`` and ``tests/e2e`` runs against
 from __future__ import annotations
 
 import base64
+import os
+import tempfile
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -38,7 +40,7 @@ def make_settings(**overrides: Any) -> Settings:
         "gc_interval_s": 3600.0,
         "request_timeout_s": 10.0,
         "tool_wait_ttl_s": 5.0,
-        "workspace": "/tmp/claudegate-tests",
+        "workspace": os.path.join(tempfile.gettempdir(), "claudegate-tests"),
         "request_log": False,
     }
     base.update(overrides)
@@ -48,7 +50,9 @@ def make_settings(**overrides: Any) -> Settings:
 class Harness:
     """An app wired to scripted fake CLIs, plus the transports it created."""
 
-    def __init__(self, scenario: Scenario, cli_kwargs: dict[str, Any] | None = None, **overrides: Any) -> None:
+    def __init__(
+        self, scenario: Scenario, cli_kwargs: dict[str, Any] | None = None, **overrides: Any
+    ) -> None:
         self.scenario = scenario
         self.cli_kwargs = cli_kwargs or {}
         self.settings = make_settings(**overrides)

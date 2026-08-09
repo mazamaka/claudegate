@@ -207,9 +207,13 @@ async def test_an_api_key_is_enforced_when_one_is_configured() -> None:
     async with gateway(scripted("hi"), api_key="s3cret") as (client, _):
         assert (await client.post("/v1/chat/completions", json=chat())).status_code == 401
         bad = {"authorization": "Bearer nope"}
-        assert (await client.post("/v1/chat/completions", json=chat(), headers=bad)).status_code == 401
+        assert (
+            await client.post("/v1/chat/completions", json=chat(), headers=bad)
+        ).status_code == 401
         good = {"authorization": "Bearer s3cret"}
-        assert (await client.post("/v1/chat/completions", json=chat(), headers=good)).status_code == 200
+        assert (
+            await client.post("/v1/chat/completions", json=chat(), headers=good)
+        ).status_code == 200
         assert (await client.get("/health")).status_code == 200
 
 

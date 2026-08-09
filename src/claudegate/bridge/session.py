@@ -225,7 +225,20 @@ class LiveSession:
     # ── lifecycle ─────────────────────────────────────────────────────────
 
     async def start(self) -> None:
-        await self._client.connect()
+        """Connect to a CLI process and begin draining it."""
+        try:
+            await self._client.connect()
+        except NotImplementedError as exc:
+            # Windows: a SelectorEventLoop cannot spawn subprocesses, and every
+            # turn would fail with an error that names neither the loop nor the
+            # platform. `claudegate serve` gets this right; an app embedded in
+            # another runner might not.
+            raise RuntimeError(
+                "This event loop cannot spawn a subprocess, so the Claude Code "
+                "CLI cannot be started. On Windows the server needs a "
+                "ProactorEventLoop (asyncio.WindowsProactorEventLoopPolicy); "
+                "`claudegate serve` selects one for you."
+            ) from exc
         self._pump = asyncio.create_task(self._pump_loop(), name=f"claudegate-pump-{self.id}")
 
     async def aclose(self) -> None:
@@ -295,11 +308,28 @@ class LiveSession:
                 log.warning("session %s: no result for %s; releasing", self.id, call_id)
                 fut.set_result("[claudegate] the client returned no result for this tool call")
 
-    async def stream_turn(self, timeout: float | None = None) -> AsyncIterator[TurnEvent]:
-        """Yield this turn's events, ending at the turn boundary."""
+    async def stream_turn(
+        self, timeout: float | None = None, first_event_timeout: float | None = None
+    ) -> AsyncIterator[TurnEvent]:
+        """Yield this turn's events, ending at the turn boundary.
+
+        Two deadlines, because they mean different things. ``timeout`` bounds a
+        turn that is making progress. ``first_event_timeout`` bounds a turn that
+        has produced *nothing* — the CLI connects, accepts the message, and then
+        goes quiet, which in practice means credentials rather than a slow
+        model. Reporting that as "timed out waiting for the model" sends people
+        looking at their network for fifteen minutes.
+        """
         deadline = None if timeout is None else time.monotonic() + timeout
+        silent_until = (
+            None if first_event_timeout is None else time.monotonic() + first_event_timeout
+        )
+        seen = False
         while True:
             remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
+            if not seen and silent_until is not None:
+                quiet = max(0.0, silent_until - time.monotonic())
+                remaining = quiet if remaining is None else min(remaining, quiet)
             try:
                 item = await asyncio.wait_for(self._queue.get(), timeout=remaining)
             except (TimeoutError, asyncio.TimeoutError):
@@ -308,11 +338,22 @@ class LiveSession:
                 # turn nobody is listening to, and would surface inside the
                 # *next* one, so the conversation is retired instead of reused.
                 self.closed = True
+                if not seen and silent_until is not None and time.monotonic() >= silent_until:
+                    log.warning("session %s: no output from the CLI; retiring it", self.id)
+                    yield TurnFailed(
+                        "The Claude Code CLI accepted the message and produced no "
+                        "output. This is usually authentication: an expired or "
+                        "invalid token, or an account without Claude Code access. "
+                        "Run `claudegate doctor` to check.",
+                        status=502,
+                    )
+                    return
                 log.warning("session %s: turn timed out; retiring it", self.id)
                 yield TurnFailed("Timed out waiting for the model.", status=504)
                 return
             if item is None:
                 return
+            seen = True
             yield item
 
     # ── the pump ──────────────────────────────────────────────────────────
