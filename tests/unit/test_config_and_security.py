@@ -24,6 +24,19 @@ def test_aliases_resolve_and_unknown_models_pass_through() -> None:
     assert s.resolve_model(None) == "sonnet"
 
 
+def test_a_workspace_we_created_is_ephemeral_and_one_we_were_given_is_not(
+    tmp_path: object,
+) -> None:
+    """Restarting a service should not leave a directory behind every time,
+    and it should never delete a directory the operator named."""
+    ours = Settings()
+    assert ours.workspace_is_ephemeral is True
+    assert os.path.isdir(str(ours.workspace))
+
+    theirs = Settings(workspace=str(tmp_path))
+    assert theirs.workspace_is_ephemeral is False
+
+
 def test_the_workspace_is_created_so_the_cli_can_be_spawned_in_it(tmp_path: object) -> None:
     """A configured workspace that does not exist makes the spawn fail with an
     error no one can act on. Creating it is cheaper than diagnosing it."""

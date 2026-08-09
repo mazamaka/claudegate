@@ -69,6 +69,13 @@ class Settings(BaseSettings):
     Turn off to get an autonomous coding agent with file and shell access."""
 
     workspace: str | None = None
+
+    workspace_is_ephemeral: bool = False
+    """Set internally when the workspace was created by us, not configured.
+
+    Only then is it removed on shutdown — a directory the operator named is
+    theirs, and deleting it would be a surprise.
+    """
     """Working directory for the agent. Defaults to a private temp directory,
     which matters in bare mode where no filesystem access is expected anyway."""
 
@@ -141,6 +148,9 @@ class Settings(BaseSettings):
             # so a predictable shared path lets any other user on the host
             # pre-create it (or symlink it) and own the agent's cwd.
             path = tempfile.mkdtemp(prefix="claudegate-")
+            # Ours to create, ours to remove: a service that restarts often
+            # would otherwise leave one of these behind every time.
+            object.__setattr__(self, "workspace_is_ephemeral", True)
         object.__setattr__(self, "workspace", path)
         return self
 

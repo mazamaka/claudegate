@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -76,6 +77,8 @@ def create_app(
             yield
         finally:
             await manager.aclose()
+            if settings.workspace_is_ephemeral and settings.workspace:
+                shutil.rmtree(settings.workspace, ignore_errors=True)
 
     app = FastAPI(
         title="claudegate",
