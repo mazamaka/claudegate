@@ -131,7 +131,7 @@ class SessionManager:
 
     # ── acquiring ─────────────────────────────────────────────────────────
 
-    async def acquire(self, request: ChatCompletionRequest) -> Lease:
+    async def acquire(self, request: ChatCompletionRequest, *, tenant: str = "") -> Lease:
         settings = self.settings
         system_prompt, conversation = inbound.split_system(request.messages)
         tools = [] if request.tools_disabled else (request.tools or [])
@@ -142,6 +142,7 @@ class SessionManager:
             system_prompt=system_prompt,
             tools_fingerprint=fingerprint(tools),
             bare_mode=settings.bare_mode,
+            tenant=tenant,
         )
         incoming_chain = continuity.chain(conversation)
         results = inbound.trailing_tool_results(conversation)

@@ -65,14 +65,20 @@ def identity_key(
     system_prompt: str | None,
     tools_fingerprint: str,
     bare_mode: bool,
+    tenant: str = "",
 ) -> str:
     """What must match for two requests to be able to share a conversation.
 
     The model, the system prompt and the tool set are all fixed when the CLI is
     spawned. A request that changes any of them needs a new conversation, so
     they are folded into the key rather than checked case by case later.
+
+    ``tenant`` is the caller's identity. It is part of the key because matching
+    on history alone is not safe across callers: a shared system prompt and a
+    templated opening message give two unrelated clients the same prefix, and
+    the second one would inherit the first one's conversation.
     """
-    payload = _stable([model, system_prompt or "", tools_fingerprint, bare_mode])
+    payload = _stable([model, system_prompt or "", tools_fingerprint, bare_mode, tenant])
     return hashlib.sha256(payload.encode()).hexdigest()[:32]
 
 

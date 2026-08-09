@@ -38,6 +38,52 @@ async def test_a_follow_up_turn_sends_only_the_new_message() -> None:
     assert follow_up_text == "second question"
 
 
+async def test_two_callers_with_the_same_history_never_share_a_conversation() -> None:
+    """A shared system prompt and a templated opening message are not a
+    coincidence — they are what a deployment looks like. Matching on history
+    alone would hand the second caller the first one's live conversation."""
+    async with gateway(scripted("a", "b", "c"), api_key="key-one,key-two") as (client, harness):
+        opening: list[dict[str, Any]] = [
+            {"role": "system", "content": "You are a support agent."},
+            {"role": "user", "content": "Hello, I need help."},
+        ]
+        alice = {"authorization": "Bearer key-one"}
+        bob = {"authorization": "Bearer key-two"}
+
+        await client.post("/v1/chat/completions", json=chat(messages=opening), headers=alice)
+
+        follow_up = [*opening, {"role": "assistant", "content": "a"}, {"role": "user", "content": "more"}]
+        # Same prompt, same history, different caller.
+        intruder = await client.post(
+            "/v1/chat/completions", json=chat(messages=follow_up), headers=bob
+        )
+        assert intruder.headers["x-claudegate-mode"] == "fresh"
+
+        # ...and the original caller still gets their own conversation back.
+        owner = await client.post(
+            "/v1/chat/completions", json=chat(messages=follow_up), headers=alice
+        )
+        assert owner.headers["x-claudegate-mode"] == "reused"
+        assert len(harness.transports) == 2
+
+
+async def test_one_key_serving_many_end_users_is_partitioned_by_the_user_field() -> None:
+    async with gateway(scripted("a", "b", "c")) as (client, _harness):
+        opening: list[dict[str, Any]] = [{"role": "user", "content": "hello"}]
+        await client.post("/v1/chat/completions", json=chat(messages=opening, user="alice"))
+
+        follow_up = [*opening, {"role": "assistant", "content": "a"}, {"role": "user", "content": "more"}]
+        other = await client.post(
+            "/v1/chat/completions", json=chat(messages=follow_up, user="bob")
+        )
+        same = await client.post(
+            "/v1/chat/completions", json=chat(messages=follow_up, user="alice")
+        )
+
+        assert other.headers["x-claudegate-mode"] == "fresh"
+        assert same.headers["x-claudegate-mode"] == "reused"
+
+
 async def test_editing_the_history_starts_a_new_conversation() -> None:
     async with gateway(scripted("a", "b")) as (client, harness):
         await client.post(

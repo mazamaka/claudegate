@@ -22,6 +22,7 @@ from ..config import Settings
 from ..errors import GatewayError, InvalidRequest, for_status
 from ..openai_api import outbound
 from ..openai_api.schema import ChatCompletionRequest
+from ..security import tenant_id
 
 log = logging.getLogger("claudegate.chat")
 router = APIRouter()
@@ -53,7 +54,7 @@ async def chat_completions(request: Request) -> Any:
     started = time.monotonic()
     metrics.inc("requests_total")
 
-    lease = await manager.acquire(body)
+    lease = await manager.acquire(body, tenant=tenant_id(request, settings, body.user))
     metrics.inc_label("session_mode_total", lease.mode)
     headers = {
         "x-claudegate-session": lease.session.id,

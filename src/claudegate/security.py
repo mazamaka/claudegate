@@ -10,6 +10,7 @@ enough to running code on the host. Two consequences are baked in here:
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 
 from fastapi import Request
@@ -32,6 +33,23 @@ def extract_key(request: Request) -> str | None:
             return header.strip()
     api_key = request.headers.get("x-api-key")
     return api_key.strip() if api_key else None
+
+
+def tenant_id(request: Request, settings: Settings, end_user: str | None = None) -> str:
+    """A stable identifier for whoever is calling, for conversation isolation.
+
+    Live conversations are matched by hashing history, and two callers can
+    legitimately share a prefix — the same system prompt and the same opening
+    message is not a coincidence, it is a template. Without this, the second
+    caller would be handed the first one's conversation.
+
+    Derived from the presented key (hashed, never logged or returned) and
+    OpenAI's ``user`` field, so a single shared key serving many end users is
+    still partitioned.
+    """
+    presented = extract_key(request) or ""
+    digest = hashlib.sha256(presented.encode()).hexdigest()[:16] if presented else "anonymous"
+    return f"{digest}/{end_user or ''}"
 
 
 def check_request(request: Request, settings: Settings) -> None:

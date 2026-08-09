@@ -133,6 +133,12 @@ run code as the user running this server**. Two things follow, both enforced:
 - keys are compared in constant time, and `/health` and `/metrics` are the only
   endpoints that never need one.
 
+Live conversations are also partitioned by caller — by the presented key
+(hashed, never logged) and OpenAI's `user` field. Reuse matches on history, and
+two clients sharing a system prompt and a templated opening message is a
+deployment, not a coincidence; without this the second one would inherit the
+first one's conversation.
+
 ## Testing your integration, without a CLI
 
 The fake CLI this project tests itself with is part of the package. It speaks
