@@ -326,10 +326,18 @@ class LiveSession:
         )
         seen = False
         while True:
-            remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
+            now = time.monotonic()
+            remaining = None if deadline is None else max(0.0, deadline - now)
+            # Which deadline we are waiting on is decided here, not re-derived
+            # from the clock afterwards: Windows resolves monotonic() to about
+            # 15ms, so a wait can expire while the clock still reads "not yet"
+            # and the timeout would be attributed to the wrong cause.
+            waiting_on_silence = False
             if not seen and silent_until is not None:
-                quiet = max(0.0, silent_until - time.monotonic())
-                remaining = quiet if remaining is None else min(remaining, quiet)
+                quiet = max(0.0, silent_until - now)
+                if remaining is None or quiet <= remaining:
+                    remaining = quiet
+                    waiting_on_silence = True
             try:
                 item = await asyncio.wait_for(self._queue.get(), timeout=remaining)
             except (TimeoutError, asyncio.TimeoutError):
@@ -338,7 +346,7 @@ class LiveSession:
                 # turn nobody is listening to, and would surface inside the
                 # *next* one, so the conversation is retired instead of reused.
                 self.closed = True
-                if not seen and silent_until is not None and time.monotonic() >= silent_until:
+                if waiting_on_silence:
                     log.warning("session %s: no output from the CLI; retiring it", self.id)
                     yield TurnFailed(
                         "The Claude Code CLI accepted the message and produced no "
