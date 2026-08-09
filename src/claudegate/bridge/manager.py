@@ -109,6 +109,12 @@ class SessionManager:
         self._lock = asyncio.Lock()
         self._gc: asyncio.Task[None] | None = None
         self._transport_factory = transport_factory
+        #: Slots promised to requests that are mid-spawn. Counted against
+        #: ``max_sessions`` so the ceiling holds while the lock is released.
+        self._reserved = 0
+        #: Strong references to teardown tasks. A task nobody holds can be
+        #: garbage collected mid-flight, which loses the cleanup and the error.
+        self._closing: set[asyncio.Task[None]] = set()
 
     # ── lifecycle ─────────────────────────────────────────────────────────
 
@@ -123,7 +129,10 @@ class SessionManager:
         async with self._lock:
             sessions = list(self._sessions.values())
             self._sessions.clear()
-        await asyncio.gather(*(s.aclose() for s in sessions), return_exceptions=True)
+        pending = [*self._closing]
+        await asyncio.gather(
+            *(s.aclose() for s in sessions), *pending, return_exceptions=True
+        )
 
     @property
     def live(self) -> int:
@@ -161,6 +170,15 @@ class SessionManager:
                 if lease is not None:
                     return lease
 
+            # Starting a conversation spawns a CLI process and completes a
+            # handshake with it \u2014 hundreds of milliseconds at best, unbounded at
+            # worst. Doing that under the registry lock makes one slow spawn
+            # block every other request, the reaper, and shutdown. So the slot
+            # is reserved here and the spawn happens outside.
+            await self._make_room()
+            self._reserved += 1
+
+        try:
             return await self._fresh(
                 request,
                 identity=identity,
@@ -171,6 +189,9 @@ class SessionManager:
                 model=model,
                 rebuilt=bool(results),
             )
+        finally:
+            async with self._lock:
+                self._reserved -= 1
 
     async def _continue(
         self,
@@ -243,8 +264,11 @@ class SessionManager:
                     inbound.message_blocks(msg, attachments=self.settings.forward_attachments)
                 )
         else:
+            # No preamble here: this conversation is live and has everything
+            # before the delta already. Re-announcing "the conversation so far
+            # is transcribed below" mid-conversation just confuses the model.
             blocks = inbound.render_history(
-                delta, attachments=self.settings.forward_attachments
+                delta, attachments=self.settings.forward_attachments, header=False
             )
 
         best.busy = True
@@ -265,8 +289,6 @@ class SessionManager:
         model: str,
         rebuilt: bool,
     ) -> Lease:
-        await self._make_room()
-
         session_id = uuid.uuid4().hex[:12]
         holder: dict[str, LiveSession] = {}
 
@@ -292,7 +314,14 @@ class SessionManager:
         holder["session"] = session
 
         try:
-            await session.start()
+            await asyncio.wait_for(session.start(), timeout=self.settings.cli_start_timeout_s)
+        except (TimeoutError, asyncio.TimeoutError) as exc:
+            with contextlib.suppress(Exception):
+                await session.aclose()
+            raise UpstreamError(
+                f"The Claude Code CLI did not become ready within "
+                f"{self.settings.cli_start_timeout_s:.0f}s."
+            ) from exc
         except Exception as exc:
             with contextlib.suppress(Exception):
                 await session.aclose()
@@ -300,7 +329,8 @@ class SessionManager:
 
         session.busy = True
         session.chain = chain
-        self._sessions[session_id] = session
+        async with self._lock:
+            self._sessions[session_id] = session
         self.stats.created += 1
         if rebuilt:
             self.stats.rebuilt += 1
@@ -319,9 +349,13 @@ class SessionManager:
     # ── releasing and reaping ─────────────────────────────────────────────
 
     async def release(self, session: LiveSession, *, failed: bool = False) -> None:
+        # Retire before unlatching, never the other way round: in between, a
+        # concurrent request could take a conversation that is about to close.
+        if failed:
+            session.closed = True
         session.busy = False
         session.last_used = time.monotonic()
-        if failed or session.closed:
+        if session.closed:
             await self.drop(session)
 
     async def drop(self, session: LiveSession) -> None:
@@ -330,18 +364,26 @@ class SessionManager:
         await session.aclose()
 
     async def _make_room(self) -> None:
-        if len(self._sessions) < self.settings.max_sessions:
+        if len(self._sessions) + self._reserved < self.settings.max_sessions:
             return
         idle = [s for s in self._sessions.values() if not s.busy]
         if not idle:
             raise OverloadedError(
                 f"All {self.settings.max_sessions} conversation slots are busy.", retry_after=5
             )
-        victim = max(idle, key=lambda s: s.idle_for())
+        # A conversation parked on a tool call the client abandoned is dead
+        # weight: it cannot be reused and it holds a process. Evict those first,
+        # then the idlest.
+        victim = max(idle, key=lambda s: (s.awaiting_tools, s.idle_for()))
         self._sessions.pop(victim.id, None)
         self.stats.evicted += 1
         log.info("evicting session %s to make room", victim.id)
-        asyncio.get_running_loop().create_task(victim.aclose())
+        self._spawn_teardown(victim)
+
+    def _spawn_teardown(self, session: LiveSession) -> None:
+        task = asyncio.create_task(session.aclose(), name=f"claudegate-close-{session.id}")
+        self._closing.add(task)
+        task.add_done_callback(self._closing.discard)
 
     async def _gc_loop(self) -> None:
         while True:

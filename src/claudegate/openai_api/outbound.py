@@ -29,9 +29,14 @@ def completion_id() -> str:
 
 
 def call_id(seed: str | None = None) -> str:
-    """OpenAI-shaped tool call id, derived from Anthropic's when we have one."""
+    """OpenAI-shaped tool call id, derived from Anthropic's when we have one.
+
+    The whole seed is kept. Truncating it made the mapping non-injective, and
+    these ids are what a continuation is matched on \u2014 two calls colliding here
+    would attribute a client's result to the wrong one.
+    """
     if seed:
-        return f"call_{seed[-24:]}" if not seed.startswith("call_") else seed
+        return seed if seed.startswith("call_") else f"call_{seed}"
     return f"call_{uuid.uuid4().hex[:24]}"
 
 

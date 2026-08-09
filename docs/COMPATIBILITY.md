@@ -8,7 +8,8 @@ What a client can send, and what actually happens to it.
 |---|---|
 | `POST /v1/chat/completions` | Full: streaming, tools, vision, usage |
 | `GET /v1/models`, `GET /v1/models/{id}` | Yes |
-| `GET /health`, `/health?deep=1`, `/metrics` | Yes (no auth) |
+| `GET /health`, `/metrics` | Yes, no auth — they are cheap and probes need them |
+| `GET /health?deep=1` | Yes, but **requires the API key when one is set**: it spends a real completion and takes a session slot, so it is not free to strangers. Throttled to one probe per `DEEP_PROBE_INTERVAL_S`. |
 | `/v1/completions` (legacy), `/v1/embeddings`, audio, images | Not implemented — the CLI has no equivalent |
 
 ## Request fields

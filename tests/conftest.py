@@ -48,14 +48,15 @@ def make_settings(**overrides: Any) -> Settings:
 class Harness:
     """An app wired to scripted fake CLIs, plus the transports it created."""
 
-    def __init__(self, scenario: Scenario, **overrides: Any) -> None:
+    def __init__(self, scenario: Scenario, cli_kwargs: dict[str, Any] | None = None, **overrides: Any) -> None:
         self.scenario = scenario
+        self.cli_kwargs = cli_kwargs or {}
         self.settings = make_settings(**overrides)
         self.transports: list[FakeClaudeCLI] = []
         self.app = create_app(self.settings, transport_factory=self._factory)
 
     def _factory(self) -> FakeClaudeCLI:
-        cli = FakeClaudeCLI(self.scenario)
+        cli = FakeClaudeCLI(self.scenario, **self.cli_kwargs)
         self.transports.append(cli)
         return cli
 
@@ -70,10 +71,12 @@ class Harness:
 
 
 @asynccontextmanager
-async def gateway(scenario: Scenario | None = None, **overrides: Any) -> AsyncIterator[
-    tuple[httpx.AsyncClient, Harness]
-]:
-    harness = Harness(scenario or scripted("hello"), **overrides)
+async def gateway(
+    scenario: Scenario | None = None,
+    cli_kwargs: dict[str, Any] | None = None,
+    **overrides: Any,
+) -> AsyncIterator[tuple[httpx.AsyncClient, Harness]]:
+    harness = Harness(scenario or scripted("hello"), cli_kwargs=cli_kwargs, **overrides)
     async with harness.app.router.lifespan_context(harness.app):
         transport = httpx.ASGITransport(app=harness.app)
         async with httpx.AsyncClient(transport=transport, base_url="http://gate", timeout=30) as c:

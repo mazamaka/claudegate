@@ -120,10 +120,17 @@ class Turn:
         arguments = arguments or {}
         tool_use_id = self._cli.next_tool_id()
         full_name = name if name.startswith("mcp__") else f"mcp__client__{name}"
-        await self._cli.emit_assistant(
-            [{"type": "tool_use", "id": tool_use_id, "name": full_name, "input": arguments}],
-            stop_reason="tool_use",
-        )
+        blocks = [{"type": "tool_use", "id": tool_use_id, "name": full_name, "input": arguments}]
+
+        if self._cli.eager_tools:
+            # The call lands first and the server has to wait for the assistant
+            # message before it knows which tool_use id this invocation is.
+            pending = asyncio.ensure_future(self._cli.invoke_tool(full_name, arguments))
+            await asyncio.sleep(0)
+            await self._cli.emit_assistant(blocks, stop_reason="tool_use")
+            return await pending
+
+        await self._cli.emit_assistant(blocks, stop_reason="tool_use")
         return await self._cli.invoke_tool(full_name, arguments)
 
     async def call_tools(self, calls: list[tuple[str, dict[str, Any]]]) -> list[str]:
@@ -190,8 +197,17 @@ class FakeClaudeCLI(Transport):
         model: str = "claude-fake",
         usage: dict[str, Any] | None = None,
         available_tools: list[str] | None = None,
+        connect_delay: float = 0.0,
+        eager_tools: bool = False,
     ) -> None:
         self.scenario = scenario
+        #: Seconds ``connect()`` takes. The real CLI spawns a process and runs a
+        #: handshake; a fake that returns instantly hides anything the server
+        #: does while a conversation is starting.
+        self.connect_delay = connect_delay
+        #: Dispatch ``tools/call`` *before* the assistant message describing it,
+        #: which is what the real CLI does when it wins the race.
+        self.eager_tools = eager_tools
         self.session_id = session_id
         self.model = model
         self.usage = dict(usage or DEFAULT_USAGE)
@@ -223,6 +239,8 @@ class FakeClaudeCLI(Transport):
     # -- transport --------------------------------------------------------
 
     async def connect(self) -> None:
+        if self.connect_delay:
+            await asyncio.sleep(self.connect_delay)
         self._ready = True
         await self.emit({
             "type": "system", "subtype": "init", "session_id": self.session_id,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections.abc import AsyncIterator
@@ -9,6 +10,7 @@ from typing import Any
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import ValidationError
 
 from ..bridge.manager import Lease, SessionManager
 from ..bridge.session import (
@@ -28,6 +30,19 @@ log = logging.getLogger("claudegate.chat")
 router = APIRouter()
 
 
+def _explain(exc: ValidationError) -> str:
+    """A short, actionable message instead of pydantic's full report.
+
+    The raw text carries a docs URL and the internal model layout, which is
+    noise in a client's error handler.
+    """
+    parts = []
+    for error in exc.errors()[:3]:
+        where = ".".join(str(p) for p in error.get("loc", ())) or "body"
+        parts.append(f"{where}: {error.get('msg', 'invalid')}")
+    return "Malformed request \u2014 " + "; ".join(parts)
+
+
 def _validate(body: ChatCompletionRequest) -> None:
     if not body.messages:
         raise InvalidRequest("'messages' must contain at least one message.", param="messages")
@@ -43,11 +58,21 @@ async def chat_completions(request: Request) -> Any:
     manager: SessionManager = request.app.state.manager
     metrics = request.app.state.metrics
 
-    payload = await request.json()
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > settings.max_request_bytes:
+        raise InvalidRequest(
+            f"Request body is larger than {settings.max_request_bytes} bytes.",
+        )
+    try:
+        payload = await request.json()
+    except ValueError as exc:
+        raise InvalidRequest("Request body is not valid JSON.") from exc
+    if not isinstance(payload, dict):
+        raise InvalidRequest("Request body must be a JSON object.")
     try:
         body = ChatCompletionRequest.model_validate(payload)
-    except Exception as exc:
-        raise InvalidRequest(f"Malformed request: {exc}") from exc
+    except ValidationError as exc:
+        raise InvalidRequest(_explain(exc)) from exc
     _validate(body)
 
     reported_model = body.model or settings.default_model
@@ -80,6 +105,32 @@ async def _stream(
     metrics: Any,
     started: float,
 ) -> AsyncIterator[str]:
+    """Wrap the stream so it always terminates the way a client expects.
+
+    An SSE stream that dies without a final frame leaves the client's parser
+    waiting, usually until its own timeout. Whatever goes wrong in here, the
+    client gets an error frame and ``[DONE]``.
+    """
+    try:
+        async for frame in _stream_turn(lease, body, settings, model, metrics, started):
+            yield frame
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        log.exception("unhandled failure while streaming")
+        metrics.inc("errors_total")
+        yield outbound.sse(GatewayError("Internal server error while streaming.").to_dict())
+        yield outbound.DONE
+
+
+async def _stream_turn(
+    lease: Lease,
+    body: ChatCompletionRequest,
+    settings: Settings,
+    model: str,
+    metrics: Any,
+    started: float,
+) -> AsyncIterator[str]:
     cid = outbound.completion_id()
     created = int(time.time())
     calls: list[dict[str, Any]] = []
@@ -91,6 +142,9 @@ async def _stream(
         try:
             await lease.dispatch()
         except GatewayError as exc:
+            # Returning from inside the lease means __aexit__ sees no exception,
+            # so the conversation would be handed back to the pool as healthy.
+            lease.session.closed = True
             yield outbound.sse(exc.to_dict())
             yield outbound.DONE
             return
@@ -130,6 +184,7 @@ async def _stream(
                     metrics.inc("cost_usd_total", event.cost_usd)
             elif isinstance(event, TurnFailed):
                 metrics.inc("errors_total")
+                lease.session.closed = True
                 error = for_status(event.status, event.message)
                 yield outbound.sse(error.to_dict())
                 yield outbound.DONE

@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from ..config import Settings
 from ..errors import ModelNotFound
 from ..openai_api.schema import ModelCard, ModelList
+from ..security import check_request
 
 router = APIRouter()
 #: Health and metrics live at the root as well as under ``/v1``, because that
@@ -63,7 +64,10 @@ def _health_payload(request: Request) -> dict[str, Any]:
         "sessions": manager.live,
         "max_sessions": settings.max_sessions,
         "bare_mode": settings.bare_mode,
-        "cli": settings.cli_path or shutil.which("claude") or "not found on PATH",
+        # Deliberately not the path: /health is public, and the filesystem
+        # layout of the host is not a client's business. `claudegate doctor`
+        # prints the path for whoever can run it.
+        "cli": "ok" if (settings.cli_path or shutil.which("claude")) else "not found on PATH",
     }
 
 
@@ -73,6 +77,19 @@ async def health(request: Request, deep: int = 0) -> JSONResponse:
     payload = _health_payload(request)
     if not deep:
         return JSONResponse(payload)
+
+    # A deep probe spends a real completion and occupies a session slot, so it
+    # is not free the way /health is. Anyone able to reach it unauthenticated
+    # could burn tokens and exhaust the pool.
+    settings: Settings = request.app.state.settings
+    if settings.api_keys:
+        check_request(request, settings, public=False)
+    now = time.monotonic()
+    last = getattr(request.app.state, "last_deep_probe", 0.0)
+    if now - last < settings.deep_probe_interval_s:
+        payload["probe"] = {"ok": None, "skipped": "throttled"}
+        return JSONResponse(payload)
+    request.app.state.last_deep_probe = now
 
     from ..openai_api.schema import ChatCompletionRequest, Message
 

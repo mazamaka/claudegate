@@ -14,4 +14,7 @@ First release.
   request history rather than failing a turn the client cannot retry.
 - `claudegate doctor`, `claudegate smoke` and `claudegate install-service`.
 - `claudegate.testing`: a fake CLI speaking the real control protocol, so
-  integrations can be tested without a CLI, a token or a network.
+  integrations can be tested without a CLI, a token or a network. It can also
+  be told to be slow (`connect_delay`) or to race (`eager_tools`), because the
+  two worst defects found while reviewing this release were both invisible to a
+  fake that answered instantly and always in the same order.

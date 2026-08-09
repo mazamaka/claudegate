@@ -96,6 +96,11 @@ def sandbox_env() -> dict[str, str]:
     afternoon into a non-event.
     """
     if hasattr(os, "geteuid") and os.geteuid() == 0 and not os.environ.get("IS_SANDBOX"):
+        log.warning(
+            "running as root: setting IS_SANDBOX=1 so the CLI will accept "
+            "permission bypass. This disables a guard the CLI puts there on "
+            "purpose \u2014 prefer a dedicated non-root user for a real deployment."
+        )
         return {"IS_SANDBOX": "1"}
     return {}
 
@@ -262,13 +267,16 @@ class LiveSession:
         # only ever echoes what it was given for this turn, and that is what
         # ``proves_receipt`` compares against.
         self._reply_buffer.clear()
+        # Snapshot first. The model may register a *new* round of calls while we
+        # are still handing back this one, and those must not be force-released.
+        outstanding = list(self._results.items())
         for call_id, text in results.items():
             fut = self._results.get(call_id)
             if fut and not fut.done():
                 fut.set_result(text)
         # A client that answers only some of the calls would otherwise leave the
         # conversation wedged until the TTL expires.
-        for call_id, fut in self._results.items():
+        for call_id, fut in outstanding:
             if not fut.done():
                 log.warning("session %s: no result for %s; releasing", self.id, call_id)
                 fut.set_result("[claudegate] the client returned no result for this tool call")
@@ -380,7 +388,10 @@ class LiveSession:
             for inv in invocations:
                 self._results[inv.id] = loop.create_future()
             self._correlator.expect(invocations)
-            self._expectations_ready.set()
+            # Hand this round's waiters their event and install a fresh one for
+            # the next round, so the latch cannot stay set across rounds.
+            self._expectations_ready, ready = asyncio.Event(), self._expectations_ready
+            ready.set()
             await self._emit(ToolCallsRequested(invocations))
             await self._emit(
                 TurnFinished(stop_reason="tool_use", usage=self._last_usage, cost_usd=None)
@@ -390,9 +401,17 @@ class LiveSession:
     async def _handle_result(self, message: ResultMessage) -> None:
         self.last_reply = "".join(self._reply_buffer)
         self._reply_buffer.clear()
+        # Release before clearing. A future dropped while a handler is parked on
+        # it leaves that handler waiting out the full tool TTL, holding a
+        # subprocess open long after the conversation left the pool.
+        for pending in self._results.values():
+            if not pending.done():
+                pending.set_result("[claudegate] the run ended before this call returned")
         self._results.clear()
         self._correlator.clear()
-        self._expectations_ready.clear()
+        # Wake any handler still waiting to be registered: it gets an immediate
+        # answer instead of sitting out the registration grace period.
+        self._expectations_ready.set()
         if message.is_error:
             detail = "; ".join(message.errors or []) or message.result or message.subtype
             status = 429 if message.api_error_status == 429 else 502
@@ -406,6 +425,9 @@ class LiveSession:
                 )
             )
         self._last_stop = None
+        # Usage belongs to the turn that reported it. Carrying it over makes the
+        # next turn report numbers it never spent.
+        self._last_usage = {}
         await self._end_turn()
 
     # ── the parked tool handler ───────────────────────────────────────────
@@ -417,10 +439,11 @@ class LiveSession:
         exactly the semantics we want for "the caller is running this tool".
         """
         if not self._correlator.pending_ids:
+            # Wait on the event as it is *now*: a later round installs a new one,
+            # and waking on that would mean claiming another round's call.
+            ready = self._expectations_ready
             with contextlib.suppress(TimeoutError, asyncio.TimeoutError):
-                await asyncio.wait_for(
-                    self._expectations_ready.wait(), timeout=_REGISTRATION_GRACE_S
-                )
+                await asyncio.wait_for(ready.wait(), timeout=_REGISTRATION_GRACE_S)
 
         invocation = self._correlator.claim(openai_name, args)
         if invocation is None:

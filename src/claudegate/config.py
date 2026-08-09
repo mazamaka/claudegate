@@ -103,6 +103,12 @@ class Settings(BaseSettings):
     session_idle_ttl_s: float = 1800.0
     tool_wait_ttl_s: float = 600.0
     request_timeout_s: float = 900.0
+    cli_start_timeout_s: float = 120.0
+    """How long to wait for a spawned CLI to finish its handshake. Without a
+    bound, one wedged process would stall every request behind it."""
+
+    max_request_bytes: int = 32 * 1024 * 1024
+    deep_probe_interval_s: float = 30.0
     gc_interval_s: float = 30.0
     max_sessions: int = 64
 
@@ -127,8 +133,14 @@ class Settings(BaseSettings):
         # The CLI is spawned with this as its working directory. A path that
         # does not exist makes the spawn fail with an errno the user never
         # sees, so create it here instead of diagnosing it later.
-        path = self.workspace or os.path.join(tempfile.gettempdir(), "claudegate-workspace")
-        os.makedirs(path, exist_ok=True)
+        if self.workspace:
+            path = self.workspace
+            os.makedirs(path, mode=0o700, exist_ok=True)
+        else:
+            # Not a fixed name under /tmp. The agent runs with permission bypass,
+            # so a predictable shared path lets any other user on the host
+            # pre-create it (or symlink it) and own the agent's cwd.
+            path = tempfile.mkdtemp(prefix="claudegate-")
         object.__setattr__(self, "workspace", path)
         return self
 

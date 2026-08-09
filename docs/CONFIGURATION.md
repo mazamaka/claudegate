@@ -57,6 +57,9 @@ available — which is what an OpenAI client expects.
 | `CLAUDEGATE_SESSION_IDLE_TTL_S` | `1800` | |
 | `CLAUDEGATE_TOOL_WAIT_TTL_S` | `600` | How long a parked tool call waits for your result. Raise it if your tools are slow or need human approval. |
 | `CLAUDEGATE_REQUEST_TIMEOUT_S` | `900` | |
+| `CLAUDEGATE_CLI_START_TIMEOUT_S` | `120` | How long a spawned CLI has to finish its handshake. Without a bound, one wedged process stalls the requests behind it. |
+| `CLAUDEGATE_MAX_REQUEST_BYTES` | `33554432` | Bodies larger than this are refused. Base64 images are the reason this exists. |
+| `CLAUDEGATE_DEEP_PROBE_INTERVAL_S` | `30` | Minimum gap between `/health?deep=1` probes. A deep probe spends a real completion. |
 | `CLAUDEGATE_MAX_SESSIONS` | `64` | Each live conversation is a CLI process (~200 MB). Concurrency is bounded by RAM, not CPU. |
 | `CLAUDEGATE_GC_INTERVAL_S` | `30` | |
 

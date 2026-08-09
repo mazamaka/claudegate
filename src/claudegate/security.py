@@ -52,9 +52,13 @@ def tenant_id(request: Request, settings: Settings, end_user: str | None = None)
     return f"{digest}/{end_user or ''}"
 
 
-def check_request(request: Request, settings: Settings) -> None:
-    """Raise :class:`AuthenticationError` unless the request may proceed."""
-    if request.url.path in PUBLIC_PATHS:
+def check_request(request: Request, settings: Settings, *, public: bool = True) -> None:
+    """Raise :class:`AuthenticationError` unless the request may proceed.
+
+    ``public=False`` ignores :data:`PUBLIC_PATHS`, for the one endpoint that is
+    free to probe but not free to *use* (``/health?deep=1``).
+    """
+    if public and request.url.path in PUBLIC_PATHS:
         return
     keys = settings.api_keys
     if not keys:
@@ -64,5 +68,9 @@ def check_request(request: Request, settings: Settings) -> None:
     presented = extract_key(request)
     if not presented:
         raise AuthenticationError("Missing bearer token.")
-    if not any(hmac.compare_digest(presented, k) for k in keys):
+    # Compare bytes, not str: compare_digest raises TypeError on non-ASCII text,
+    # and a client with an umlaut in its key would get an unauthenticated 500
+    # with a traceback instead of a 401.
+    offered = presented.encode("utf-8")
+    if not any(hmac.compare_digest(offered, k.encode("utf-8")) for k in keys):
         raise AuthenticationError()

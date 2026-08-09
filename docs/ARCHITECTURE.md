@@ -137,6 +137,23 @@ that reuse is an optimisation with a safety condition, not a security boundary.
 Editing history mid-conversation (a regenerate, a branch) simply fails to match,
 and starts a new conversation. That is the correct answer, not a fallback.
 
+## Concurrency
+
+Two rules keep the registry from becoming the bottleneck it looks like:
+
+* **Nothing slow happens under the lock.** Starting a conversation spawns a
+  process and completes a handshake — hundreds of milliseconds at best,
+  unbounded at worst. The lock is used to *reserve* a slot and released before
+  the spawn, then re-taken to register the result. Holding it across the spawn
+  made one slow CLI stall every other request, the reaper, and shutdown.
+* **Every wait is bounded.** `cli_start_timeout_s` for the handshake,
+  `tool_wait_ttl_s` for a parked tool call, `request_timeout_s` for a turn. An
+  unbounded await in a shared path is an outage waiting for a bad day.
+
+Teardown runs as tracked tasks (a task nobody holds a reference to can be
+collected mid-flight, losing both the cleanup and the error), and `aclose()`
+waits for them.
+
 ## Failure modes, on purpose
 
 * **Expired conversation.** Tool results arrive for a conversation we no longer

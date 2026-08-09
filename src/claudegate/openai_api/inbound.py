@@ -165,7 +165,9 @@ def _tool_call_line(call: Any) -> str:
     return f"{call.function.name}({args})"
 
 
-def render_history(messages: list[Message], *, attachments: bool = True) -> list[Block]:
+def render_history(
+    messages: list[Message], *, attachments: bool = True, header: bool = True
+) -> list[Block]:
     """Render a full conversation as one user turn, preserving every image.
 
     Used when there is no live conversation to continue: on the first request,
@@ -173,7 +175,7 @@ def render_history(messages: list[Message], *, attachments: bool = True) -> list
     inline — a transcript that silently drops them makes the model answer
     questions about a picture it can no longer see, confidently and wrongly.
     """
-    out: list[Block] = [{"type": "text", "text": _TRANSCRIPT_HEADER}]
+    out: list[Block] = [{"type": "text", "text": _TRANSCRIPT_HEADER}] if header else []
 
     def add_text(text: str) -> None:
         if out and out[-1]["type"] == "text":
