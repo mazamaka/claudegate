@@ -1,0 +1,91 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "claudegate"
+version = "0.1.0"
+description = "OpenAI-compatible API server for the Claude Code CLI — streaming, tools, vision, and live session reuse."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [{ name = "Maksym Babenko" }]
+keywords = [
+    "claude",
+    "claude-code",
+    "openai",
+    "openai-compatible",
+    "llm",
+    "proxy",
+    "api-gateway",
+    "anthropic",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Typing :: Typed",
+]
+dependencies = [
+    "claude-agent-sdk>=0.2.0",
+    "fastapi>=0.115",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.6",
+    "uvicorn>=0.30",
+]
+
+[project.optional-dependencies]
+dev = [
+    "httpx>=0.27",
+    "mypy>=1.11",
+    "pytest-asyncio>=0.24",
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[project.urls]
+Homepage = "https://github.com/mazamaka/claudegate"
+Repository = "https://github.com/mazamaka/claudegate"
+Issues = "https://github.com/mazamaka/claudegate/issues"
+
+[project.scripts]
+claudegate = "claudegate.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/claudegate"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "C4", "RUF", "ASYNC", "PT"]
+ignore = ["B008", "RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src/claudegate"]
+strict = true
+warn_unreachable = true
+disallow_any_generics = false
+
+[[tool.mypy.overrides]]
+module = ["claude_agent_sdk.*"]
+follow_imports = "silent"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = [
+    "live: hits the real Claude Code CLI; opt-in via CLAUDEGATE_LIVE_TESTS=1",
+]

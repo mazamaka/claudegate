@@ -1,0 +1,16 @@
+services:
+  claudegate:
+    build: .
+    ports:
+      # Loopback only. Remove the prefix once CLAUDEGATE_API_KEY is set, and put
+      # a TLS-terminating proxy in front.
+      - "127.0.0.1:8080:8080"
+    environment:
+      # A long-lived token from `claude setup-token` (~1 year, no refresh).
+      # Do not mount rotating session credentials instead: the CLI rotates them
+      # and a copy it does not own goes stale days later.
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:?set this in .env}
+      CLAUDEGATE_API_KEY: ${CLAUDEGATE_API_KEY:-}
+      CLAUDEGATE_DEFAULT_MODEL: ${CLAUDEGATE_DEFAULT_MODEL:-sonnet}
+      CLAUDEGATE_LOG_FORMAT: json
+    restart: unless-stopped
