@@ -59,6 +59,42 @@ def is_prefix(candidate: list[str], full: list[str]) -> bool:
     return len(candidate) <= len(full) and full[: len(candidate)] == candidate
 
 
+def _normalise(text: str) -> str:
+    return " ".join(text.split())
+
+
+def last_assistant_text(messages: list[Message]) -> str | None:
+    """The most recent assistant answer in the request, if there is one."""
+    for msg in reversed(messages):
+        if msg.role == "assistant":
+            return msg.text()
+    return None
+
+
+def proves_receipt(messages: list[Message], last_reply: str) -> bool:
+    """Did this request come from whoever received ``last_reply``?
+
+    Identity alone is not enough to hand back a live conversation. Callers
+    sharing one API key share a tenant, and an attacker who can guess an
+    opening — a published system prompt and a templated first message is not a
+    secret — could otherwise prime a conversation and have someone else's next
+    request land inside it.
+
+    What an attacker cannot guess is what the model actually said. Continuing a
+    conversation therefore requires handing our own last answer back, which
+    every OpenAI client does anyway because it is how the format works.
+    Whitespace is normalised, since clients trim. A client that rewrites our
+    answers more heavily than that simply gets a fresh conversation: slower,
+    never wrong.
+    """
+    if not last_reply.strip():
+        return False
+    echoed = last_assistant_text(messages)
+    if echoed is None:
+        return False
+    return _normalise(echoed) == _normalise(last_reply)
+
+
 def identity_key(
     *,
     model: str,

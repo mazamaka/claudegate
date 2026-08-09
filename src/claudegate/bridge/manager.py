@@ -219,6 +219,8 @@ class SessionManager:
                 continue
             if not continuity.is_prefix(session.chain, chain):
                 continue
+            if not continuity.proves_receipt(conversation, session.last_reply):
+                continue
             if len(session.chain) == len(chain):
                 continue  # nothing new to say; treat as a fresh request
             if best is None or len(session.chain) > len(best.chain):

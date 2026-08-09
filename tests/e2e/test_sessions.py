@@ -84,6 +84,40 @@ async def test_one_key_serving_many_end_users_is_partitioned_by_the_user_field()
         assert same.headers["x-claudegate-mode"] == "reused"
 
 
+async def test_a_conversation_is_only_continued_by_whoever_received_its_answer() -> None:
+    """The prompt-injection variant of a session mix-up.
+
+    An attacker who can guess an opening — a published system prompt plus a
+    templated first message is not a secret — primes a conversation, then waits
+    for someone else's request to land in it. What they cannot guess is what
+    the model actually said, so continuing requires handing that back.
+    """
+    async with gateway(scripted("the real answer", "b", "c")) as (client, harness):
+        opening: list[dict[str, Any]] = [
+            {"role": "system", "content": "You are a support agent."},
+            {"role": "user", "content": "Hello, I need help."},
+        ]
+        primed = await client.post("/v1/chat/completions", json=chat(messages=opening))
+        assert primed.headers["x-claudegate-mode"] == "fresh"
+
+        # Same opening, but the caller never saw the answer: no continuation.
+        guessed = [*opening, {"role": "assistant", "content": "ok"}, {"role": "user", "content": "next"}]
+        assert (
+            await client.post("/v1/chat/completions", json=chat(messages=guessed))
+        ).headers["x-claudegate-mode"] == "fresh"
+
+        # The caller who did receive it continues, even after trimming it.
+        proven = [
+            *opening,
+            {"role": "assistant", "content": "  the real answer\n"},
+            {"role": "user", "content": "next"},
+        ]
+        assert (
+            await client.post("/v1/chat/completions", json=chat(messages=proven))
+        ).headers["x-claudegate-mode"] == "reused"
+        assert len(harness.transports) == 2
+
+
 async def test_editing_the_history_starts_a_new_conversation() -> None:
     async with gateway(scripted("a", "b")) as (client, harness):
         await client.post(

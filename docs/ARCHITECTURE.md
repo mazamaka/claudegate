@@ -102,6 +102,27 @@ really there. The user side is echoed verbatim, so it is the reliable half.
 Model, system prompt and tool set are fixed when the CLI is spawned, so they are
 folded into an identity key rather than checked case by case.
 
+### Why matching on history is not enough
+
+Two callers can legitimately share a prefix. A published system prompt and a
+templated opening message is not a secret — it is what a deployment looks like —
+so history alone would let one caller's request land in another's live
+conversation. Worse in the other direction: an attacker can *prime* a
+conversation with an injected instruction and wait for a victim whose opening
+matches to arrive in it.
+
+Two independent checks close that:
+
+1. **The caller's identity is part of the session key** — the presented API key,
+   hashed, plus OpenAI's `user` field, so one shared key serving many end users
+   is still partitioned.
+2. **Continuing requires proof of receipt.** The request must hand back the
+   answer the conversation actually produced (whitespace-normalised). An
+   attacker can guess an opening; they cannot guess what the model said. Every
+   OpenAI client echoes it anyway, because that is how the format works — and a
+   client that rewrites our answers more heavily than whitespace simply gets a
+   fresh conversation: slower, never wrong.
+
 Editing history mid-conversation (a regenerate, a branch) simply fails to match,
 and starts a new conversation. That is the correct answer, not a fallback.
 

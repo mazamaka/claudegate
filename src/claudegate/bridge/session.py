@@ -187,6 +187,10 @@ class LiveSession:
         self._shut_down = False
         self.cli_session_id: str | None = None
         self.turns = 0
+        #: The last answer this conversation produced. A client that wants to
+        #: continue has to hand it back, which is what proves the conversation
+        #: is theirs — see ``SessionManager._reuse``.
+        self.last_reply = ""
 
         self._client = ClaudeSDKClient(options, transport=transport)
         self._queue: asyncio.Queue[TurnEvent | None] = asyncio.Queue()
@@ -196,6 +200,7 @@ class LiveSession:
         self._expectations_ready = asyncio.Event()
         self._last_usage: dict[str, Any] = {}
         self._last_stop: str | None = None
+        self._reply_buffer: list[str] = []
 
     # ── lifecycle ─────────────────────────────────────────────────────────
 
@@ -235,6 +240,7 @@ class LiveSession:
         """Send a user turn built from Anthropic content blocks."""
         self.last_used = time.monotonic()
         self.turns += 1
+        self._reply_buffer.clear()
         payload = {
             "type": "user",
             "message": {"role": "user", "content": blocks},
@@ -318,6 +324,7 @@ class LiveSession:
             delta = event.get("delta") or {}
             dtype = delta.get("type")
             if dtype == "text_delta" and delta.get("text"):
+                self._reply_buffer.append(delta["text"])
                 await self._emit(TextDelta(delta["text"]))
             elif dtype == "thinking_delta" and delta.get("thinking"):
                 await self._emit(ReasoningDelta(delta["thinking"]))
@@ -360,6 +367,8 @@ class LiveSession:
             await self._end_turn()
 
     async def _handle_result(self, message: ResultMessage) -> None:
+        self.last_reply = "".join(self._reply_buffer)
+        self._reply_buffer.clear()
         self._results.clear()
         self._correlator.clear()
         self._expectations_ready.clear()
