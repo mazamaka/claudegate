@@ -15,7 +15,7 @@
 ---
 
 ```bash
-pip install claudegate
+pip install git+https://github.com/mazamaka/claudegate
 claudegate doctor     # is this host ready?
 claudegate serve      # http://127.0.0.1:8080/v1
 ```
@@ -154,7 +154,7 @@ async def scenario(turn: Turn) -> None:
 app = create_app(Settings(), transport_factory=lambda: FakeClaudeCLI(scenario))
 ```
 
-That is how the 99 tests in this repo run in under a second.
+That is how the 102 tests in this repo run in under a second.
 
 ## Verifying a deployment
 
@@ -236,7 +236,7 @@ the agent's thinking budget. Details in
 
 ```bash
 pip install -e ".[dev]"
-pytest                                    # 99 tests, no CLI needed, < 1s
+pytest                                    # 102 tests, no CLI needed, < 1s
 CLAUDEGATE_LIVE_TESTS=1 pytest tests/live # the real thing
 ruff check src tests && mypy
 ```
