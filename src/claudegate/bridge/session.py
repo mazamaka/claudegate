@@ -46,6 +46,17 @@ from .toolbelt import Toolbelt, ToolCorrelator, ToolInvocation
 
 log = logging.getLogger("claudegate.session")
 
+_warned: set[str] = set()
+
+
+def _warn_once(key: str) -> bool:
+    """True the first time it is asked about ``key``."""
+    if key in _warned:
+        return False
+    _warned.add(key)
+    return True
+
+
 #: How long a tool handler waits for the expectation registry to catch up.
 #: The CLI dispatches ``tools/call`` on its own task, so it can beat the
 #: assistant message that describes the call into this process.
@@ -96,10 +107,13 @@ def sandbox_env() -> dict[str, str]:
     afternoon into a non-event.
     """
     if hasattr(os, "geteuid") and os.geteuid() == 0 and not os.environ.get("IS_SANDBOX"):
-        log.warning(
+        # Once per process, not once per conversation: a line repeated on every
+        # spawn stops being a warning and starts being noise people filter out.
+        log.log(
+            logging.WARNING if _warn_once("root") else logging.DEBUG,
             "running as root: setting IS_SANDBOX=1 so the CLI will accept "
             "permission bypass. This disables a guard the CLI puts there on "
-            "purpose \u2014 prefer a dedicated non-root user for a real deployment."
+            "purpose \u2014 prefer a dedicated non-root user for a real deployment.",
         )
         return {"IS_SANDBOX": "1"}
     return {}
