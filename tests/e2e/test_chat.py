@@ -213,6 +213,15 @@ async def test_an_api_key_is_enforced_when_one_is_configured() -> None:
         assert (await client.get("/health")).status_code == 200
 
 
+async def test_an_unknown_model_is_not_invented_by_the_lookup_endpoint() -> None:
+    async with gateway(scripted("hi")) as (client, _):
+        assert (await client.get("/v1/models/sonnet")).status_code == 200
+        unknown = await client.get("/v1/models/definitely-not-a-model")
+
+    assert unknown.status_code == 404
+    assert unknown.json()["error"]["code"] == "model_not_found"
+
+
 async def test_models_health_and_metrics_are_served() -> None:
     async with gateway(scripted("hi")) as (client, _):
         models = await client.get("/v1/models")

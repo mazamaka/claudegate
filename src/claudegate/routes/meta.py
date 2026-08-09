@@ -16,6 +16,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from ..config import Settings
+from ..errors import ModelNotFound
 from ..openai_api.schema import ModelCard, ModelList
 
 router = APIRouter()
@@ -37,7 +38,19 @@ async def list_models(request: Request) -> ModelList:
 
 
 @router.get("/models/{model_id}")
-async def get_model(model_id: str) -> ModelCard:
+async def get_model(model_id: str, request: Request) -> ModelCard:
+    """Look up one model.
+
+    Unknown names are still *accepted* by ``/v1/chat/completions`` — the CLI
+    resolves its own aliases, and rejecting a model that shipped this morning
+    would be worse than passing it through. But inventing a model card for a
+    name nobody has heard of turns a client's typo into a confusing 200, so
+    this endpoint answers only for names we would list.
+    """
+    settings: Settings = request.app.state.settings
+    known = {settings.default_model, *CATALOG, *settings.model_aliases}
+    if model_id not in known:
+        raise ModelNotFound(f"No such model: {model_id!r}", param="model")
     return ModelCard(id=model_id, created=int(time.time()))
 
 

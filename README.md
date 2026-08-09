@@ -133,11 +133,25 @@ run code as the user running this server**. Two things follow, both enforced:
 - keys are compared in constant time, and `/health` and `/metrics` are the only
   endpoints that never need one.
 
-Live conversations are partitioned by caller — by the presented key (hashed,
-never logged) and OpenAI's `user` field — and continuing one requires handing
-back the answer it actually produced. Reuse matches on history, and two clients
-sharing a system prompt and a templated opening message is a deployment, not a
-coincidence; an attacker can guess an opening, but not what the model said.
+### Conversation isolation
+
+Reuse matches a request against a live conversation's history, so two callers
+must not be able to collide. Two things prevent that:
+
+1. Conversations are partitioned by caller — the presented API key (hashed,
+   never logged) plus OpenAI's `user` field.
+2. Continuing one requires handing back the answer it actually produced. An
+   attacker can guess an opening — a published system prompt and a templated
+   first message is not a secret — but not what the model said.
+
+**The residual risk, stated plainly:** if one API key is shared by many end
+users *and* the reply to the opening turn is predictable (a fixed greeting), a
+caller who guesses both could land in someone else's conversation. Set `user`
+per end user — the OpenAI convention anyway — and the partition is exact. Or set
+`CLAUDEGATE_REUSE_REQUIRES_USER=true`, which declines to reuse anything for a
+request that omits it, or `CLAUDEGATE_REUSE_SESSIONS=false` to turn the whole
+optimisation off. Reuse is only ever a saving; a fresh conversation is always
+correct.
 
 ## Testing your integration, without a CLI
 

@@ -47,6 +47,11 @@ class Turn:
         self.payload = payload
         self.ended = False
 
+    @property
+    def cli(self) -> FakeClaudeCLI:
+        """The transport, for scenarios that need to emit raw events."""
+        return self._cli
+
     # -- what the model was given ----------------------------------------
 
     @property

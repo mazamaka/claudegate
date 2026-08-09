@@ -83,6 +83,16 @@ class Settings(BaseSettings):
     """Keep the conversation alive between requests and send only the new
     messages. Saves the full-history re-send on every turn."""
 
+    reuse_requires_user: bool = False
+    """Only reuse a conversation when the request names an end user.
+
+    ``proves_receipt`` asks the caller to hand back the answer they were given,
+    which an attacker cannot guess -- unless the answer is predictable (a fixed
+    greeting from a templated prompt). If you hand one API key to many end
+    users, either set OpenAI's ``user`` field per user (recommended anyway) or
+    turn this on, which refuses to reuse anything for requests that omit it.
+    """
+
     rebuild_on_expiry: bool = True
     """If tool results arrive for a conversation we no longer hold, rebuild it
     from the request history instead of failing the turn."""

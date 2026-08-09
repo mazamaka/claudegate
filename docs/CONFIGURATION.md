@@ -51,6 +51,7 @@ available — which is what an OpenAI client expects.
 | Variable | Default | Notes |
 |---|---|---|
 | `CLAUDEGATE_REUSE_SESSIONS` | `true` | Keep conversations open and send only new messages. |
+| `CLAUDEGATE_REUSE_REQUIRES_USER` | `false` | Refuse to reuse a conversation for a request that names no `user`. Worth turning on when one API key is shared by many end users. |
 | `CLAUDEGATE_REBUILD_ON_EXPIRY` | `true` | Rebuild from history when tool results arrive for a conversation we no longer hold. `false` returns `409`. |
 | `CLAUDEGATE_FORWARD_ATTACHMENTS` | `true` | Images and files as native blocks. |
 | `CLAUDEGATE_SESSION_IDLE_TTL_S` | `1800` | |

@@ -201,6 +201,7 @@ class LiveSession:
         self._last_usage: dict[str, Any] = {}
         self._last_stop: str | None = None
         self._reply_buffer: list[str] = []
+        self._streamed_this_message = False
 
     # ── lifecycle ─────────────────────────────────────────────────────────
 
@@ -256,6 +257,11 @@ class LiveSession:
     async def deliver_tool_results(self, results: dict[str, str]) -> None:
         """Hand back the client's tool results, unblocking the parked handlers."""
         self.last_used = time.monotonic()
+        # A continuation is a new turn: the reply buffer must not carry over the
+        # narration the model produced *before* it asked for the tool. The client
+        # only ever echoes what it was given for this turn, and that is what
+        # ``proves_receipt`` compares against.
+        self._reply_buffer.clear()
         for call_id, text in results.items():
             fut = self._results.get(call_id)
             if fut and not fut.done():
@@ -324,10 +330,13 @@ class LiveSession:
             delta = event.get("delta") or {}
             dtype = delta.get("type")
             if dtype == "text_delta" and delta.get("text"):
+                self._streamed_this_message = True
                 self._reply_buffer.append(delta["text"])
                 await self._emit(TextDelta(delta["text"]))
             elif dtype == "thinking_delta" and delta.get("thinking"):
                 await self._emit(ReasoningDelta(delta["thinking"]))
+        elif kind == "message_start":
+            self._streamed_this_message = False
         elif kind == "message_delta":
             self._last_stop = (event.get("delta") or {}).get("stop_reason") or self._last_stop
             if event.get("usage"):
@@ -350,9 +359,21 @@ class LiveSession:
                         arguments=dict(block.input or {}),
                     )
                 )
-            elif isinstance(block, (TextBlock, ThinkingBlock)):
-                # Already streamed as deltas; nothing to do.
+            elif isinstance(block, TextBlock):
+                # Normally this text has already gone out as deltas. When it
+                # has not -- partial messages disabled, or a CLI that skips
+                # them -- the answer would otherwise be silently dropped and
+                # the client would get `content: null`. Emit it once here.
+                if not self._streamed_this_message and block.text:
+                    self._reply_buffer.append(block.text)
+                    await self._emit(TextDelta(block.text))
+            elif isinstance(block, ThinkingBlock):
                 continue
+
+        # Whether this message arrived as deltas says nothing about the next
+        # one, and a CLI that sends no partial messages sends no
+        # ``message_start`` either -- so the flag is cleared here as well.
+        self._streamed_this_message = False
 
         if invocations:
             loop = asyncio.get_running_loop()

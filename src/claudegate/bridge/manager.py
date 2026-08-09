@@ -153,7 +153,10 @@ class SessionManager:
                 if lease is not None:
                     return lease
 
-            if settings.reuse_sessions and not results:
+            reuse_allowed = settings.reuse_sessions and not (
+                settings.reuse_requires_user and not request.user
+            )
+            if reuse_allowed and not results:
                 lease = await self._reuse(request, identity, incoming_chain, conversation, model)
                 if lease is not None:
                     return lease

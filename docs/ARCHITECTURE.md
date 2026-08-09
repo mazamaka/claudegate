@@ -123,6 +123,17 @@ Two independent checks close that:
    client that rewrites our answers more heavily than whitespace simply gets a
    fresh conversation: slower, never wrong.
 
+Note what the second check compares: the answer from *that* turn. A model that
+narrates before calling a tool produces text in two turns, and the client only
+ever echoes the second — so the buffer is cleared when tool results arrive, not
+just when a user message is sent. Getting this wrong does not corrupt anything,
+it silently disables reuse after the first tool call, which is exactly the kind
+of regression that never shows up as a failure.
+
+Neither check covers one case: a shared API key *and* a predictable reply. That
+is what `CLAUDEGATE_REUSE_REQUIRES_USER` is for, and why the honest framing is
+that reuse is an optimisation with a safety condition, not a security boundary.
+
 Editing history mid-conversation (a regenerate, a branch) simply fails to match,
 and starts a new conversation. That is the correct answer, not a fallback.
 
