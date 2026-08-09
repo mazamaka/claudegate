@@ -3,7 +3,10 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "claudegate"
+# The distribution is `claude-code-openai`; the package, the command and the
+# project are all `claudegate`. PyPI rejects `claudegate` as too similar to an
+# unrelated `claude-gate`, and the descriptive name is easier to find anyway.
+name = "claude-code-openai"
 version = "0.1.0"
 description = "OpenAI-compatible API server for the Claude Code CLI — streaming, tools, vision, and live session reuse."
 readme = "README.md"

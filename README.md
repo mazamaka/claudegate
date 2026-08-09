@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="https://github.com/mazamaka/claudegate/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/mazamaka/claudegate/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://pypi.org/project/claudegate/"><img alt="PyPI" src="https://img.shields.io/pypi/v/claudegate?color=3775A9"></a>
+  <a href="https://pypi.org/project/claude-code-openai/"><img alt="PyPI" src="https://img.shields.io/pypi/v/claude-code-openai?color=3775A9"></a>
   <img alt="python" src="https://img.shields.io/badge/python-3.10%20%E2%80%93%203.13-3776AB">
   <img alt="platforms" src="https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-lightgrey">
   <img alt="typing" src="https://img.shields.io/badge/mypy-strict-2A6DB2">
@@ -17,7 +17,7 @@
 ---
 
 ```bash
-pip install git+https://github.com/mazamaka/claudegate
+pip install claude-code-openai
 claudegate doctor     # is this host ready?
 claudegate serve      # http://127.0.0.1:8080/v1
 ```
@@ -258,6 +258,18 @@ the agent's thinking budget. Details in
 
 - Python 3.10+
 - Node.js 18+ and the [`claude`][cli] CLI on `PATH`, logged in
+
+### Two names, one project
+
+```bash
+pip install claude-code-openai   # the distribution
+claudegate serve                 # the command
+import claudegate                # the package
+```
+
+PyPI refuses `claudegate` as too similar to an unrelated `claude-gate`, so the
+distribution carries the descriptive name — which is also the one you would
+search for. Everything else is `claudegate`.
 
 ## Platforms
 

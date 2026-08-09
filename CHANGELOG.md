@@ -2,7 +2,9 @@
 
 ## 0.1.0
 
-First release.
+First release. Published as `claude-code-openai`; the package, the command and
+the project are `claudegate` (PyPI rejects that name as too close to an
+unrelated `claude-gate`).
 
 - OpenAI-compatible `/v1/chat/completions`: streaming and non-streaming, tool
   calling (including parallel calls), image and file input, usage accounting.
