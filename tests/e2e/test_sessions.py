@@ -348,6 +348,25 @@ async def test_idle_conversations_are_reaped() -> None:
         assert harness.manager.stats.expired == 1
 
 
+async def test_a_coarse_clock_does_not_stop_the_reaper() -> None:
+    """Windows resolves monotonic() to about 15ms.
+
+    A conversation used within the same tick reports exactly 0.0s idle, so a
+    strict `idle > ttl` comparison never reaps it — on the one setting that
+    asks for immediate reaping. Pinning the clock reproduces that everywhere.
+    """
+    async with gateway(scripted("a"), session_idle_ttl_s=0.0) as (client, harness):
+        await client.post("/v1/chat/completions", json=chat())
+        session = next(iter(harness.manager._sessions.values()))
+        # Exactly what a 15ms-resolution clock reports for a session used
+        # within the current tick. A strict `idle > ttl` never reaps this.
+        session.idle_for = lambda: 0.0  # type: ignore[method-assign]
+
+        await harness.manager._reap()
+
+        assert harness.manager.live == 0
+
+
 async def test_a_timed_out_turn_retires_its_conversation() -> None:
     """Late events from an abandoned turn must not surface inside the next one."""
 

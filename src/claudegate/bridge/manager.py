@@ -399,7 +399,11 @@ class SessionManager:
                 if session.busy:
                     continue
                 limit = self.settings.tool_wait_ttl_s if session.awaiting_tools else now_idle_limit
-                if session.idle_for() > limit or session.closed:
+                # `>=`, not `>`. Windows' monotonic clock ticks about every
+                # 15ms, so a session used moments ago reports exactly 0.0s idle
+                # and a `> 0` test would never reap it — which is precisely the
+                # configuration (ttl 0) that asks for immediate reaping.
+                if session.idle_for() >= limit or session.closed:
                     self._sessions.pop(session.id, None)
                     doomed.append(session)
         for session in doomed:
