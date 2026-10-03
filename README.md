@@ -1,315 +1,68 @@
-<h1 align="center">claudegate</h1>
+# 🔌 Claudegate
 
-<p align="center">
-  <b>An OpenAI-compatible API in front of the Claude Code CLI.</b><br>
-  Streaming, function calling, image input — and conversations that stay open between requests.
-</p>
+**Use the Claude Code CLI through an OpenAI-compatible chat API.**
 
-<p align="center">
-  <a href="https://github.com/mazamaka/claudegate/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/mazamaka/claudegate/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://pypi.org/project/claude-code-openai/"><img alt="PyPI" src="https://img.shields.io/pypi/v/claude-code-openai?color=3775A9"></a>
-  <img alt="python" src="https://img.shields.io/badge/python-3.10%20%E2%80%93%203.13-3776AB">
-  <img alt="platforms" src="https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-lightgrey">
-  <img alt="typing" src="https://img.shields.io/badge/mypy-strict-2A6DB2">
-  <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-blue"></a>
-</p>
+Connect existing chat clients and agent tools to Claude Code, with streaming responses and conversations that stay open between requests.
 
----
+## ⚡ What it does
+
+- 💬 **Chat & streaming** — chat completions, usage reporting and separate reasoning output.
+- 🧰 **Tool calling** — return a tool result and continue the same conversation.
+- 🖼️ **Image & file input** — image URLs, PDFs and text attachments.
+- 🔁 **Session reuse** — match follow-up requests to live conversations; rebuild from request history when a session is gone.
+- 📡 **Service endpoints** — model discovery, health probes and Prometheus metrics.
+
+## 🔧 Built for integration
+
+- **FastAPI + Claude Agent SDK**, with an OpenAI-compatible request/response layer.
+- **Bearer authentication**, session limits, structured logs and graceful shutdown.
+- **A fake CLI for tests**, so the default suite needs no Claude credentials.
+- **Deployment smoke checks** for streaming, tools, images and session reuse.
+
+## 🚀 Quick start
+
+Requires **Python 3.10+** and an installed, authenticated **Claude Code CLI** on `PATH`.
 
 ```bash
 pip install claude-code-openai
-claudegate doctor     # is this host ready?
-claudegate serve      # http://127.0.0.1:8080/v1
+claudegate doctor
+claudegate serve
 ```
 
-```python
-from openai import OpenAI
+The PyPI distribution is **`claude-code-openai`**; the command and Python package are **`claudegate`**.
 
-client = OpenAI(base_url="http://127.0.0.1:8080/v1", api_key="unused")
-print(client.chat.completions.create(
-    model="sonnet",
-    messages=[{"role": "user", "content": "Explain a monad in one sentence."}],
-).choices[0].message.content)
-```
-
-That is the whole setup. Anything that speaks the OpenAI chat API works: the
-official SDKs, LangChain, LlamaIndex, Open WebUI, Aider, Cursor, your own curl.
-
----
-
-## Why
-
-The Claude Code CLI is an excellent model runner that you can only talk to as a
-human at a terminal. Your code, your tools and your agents speak the OpenAI chat
-API. `claudegate` is the piece in between — a real service, not a script: bearer
-auth, backpressure, graceful shutdown, Prometheus metrics, and a test suite that
-runs without a CLI installed.
-
-## What works
-
-| | |
-|---|---|
-| **Chat completions** | streaming and non-streaming, with correct `finish_reason` and `usage` |
-| **Function calling** | parallel calls, `tool_choice`, results resumed on the *same* conversation |
-| **Vision** | `image_url` parts as native image blocks — data URLs or remote URLs |
-| **Files** | PDFs as document blocks, text files inlined |
-| **Reasoning** | streamed separately as `reasoning_content`, never mixed into the answer |
-| **Models** | `opus` / `sonnet` / `haiku`, plus `gpt-4o`-style aliases so unmodified clients work |
-| **Ops** | `/health` (with a real probe behind `?deep=1`), `/metrics`, structured JSON logs |
-
-## The interesting bit: conversations stay open
-
-An OpenAI client is stateless — it re-sends the whole history every turn. The
-CLI is not; it *holds* the conversation. The obvious way to bridge that is to
-replay the entire history into a fresh process on every request, which is
-correct, slow, and expensive.
-
-`claudegate` keeps the conversation alive instead, and recognises it again on
-the next request by hashing the messages it has already seen. A follow-up turn
-sends one message:
-
-```
-  turn 1   ████████████████████  240 prompt tokens   (fresh conversation)
-  turn 2   █                      17 prompt tokens   (same conversation, one new message)
-```
-
-The same machinery makes tool calls cheap. When the model calls one of *your*
-functions, the conversation is not unwound and replayed later — it is left
-standing, parked inside the tool handler, while the HTTP response returns
-`finish_reason: "tool_calls"`. Your result arrives on the next request and
-resolves it:
-
-```
-   client                        claudegate                         claude
-     │  POST (tools: [...])          │                                 │
-     │ ─────────────────────────────>│  in-process MCP server ────────>│
-     │                               │                    tool call <──│
-     │  <── finish_reason:tool_calls │  ← conversation parked, alive    ┊
-     │                               │                                 ┊
-     │  POST (role: tool, result)    │                                 ┊
-     │ ─────────────────────────────>│  handler resolves ─────────────>│
-     │  <── the answer               │                                 │
-```
-
-Nothing is replayed, so nothing can be replayed *wrong* — and a 40-message
-conversation costs the same to resume as a 2-message one.
-
-If the conversation really is gone — reaped after an idle timeout, or lost to a
-restart — the tool results are not refused. The history in the request is enough
-to rebuild it, which costs one re-read instead of failing a turn the client
-cannot retry.
-
-## Configuration
-
-Everything is an environment variable prefixed `CLAUDEGATE_`, and everything has
-a working default. A `.env` file in the working directory is read too.
+Try the default local endpoint:
 
 ```bash
-CLAUDEGATE_HOST=127.0.0.1          # bind
-CLAUDEGATE_PORT=8080
-CLAUDEGATE_API_KEY=                # bearer token; required for non-loopback binds
-CLAUDEGATE_DEFAULT_MODEL=sonnet
-CLAUDEGATE_BARE_MODE=true          # plain model; false = autonomous coding agent
-CLAUDEGATE_REUSE_SESSIONS=true     # keep conversations open between requests
-CLAUDEGATE_MAX_SESSIONS=64         # concurrency ceiling; over it, 429 with Retry-After
-CLAUDEGATE_SESSION_IDLE_TTL_S=1800
-CLAUDEGATE_TOOL_WAIT_TTL_S=600     # how long a parked tool call waits for your result
-CLAUDEGATE_LOG_FORMAT=text         # or json
+curl http://127.0.0.1:8080/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"sonnet","messages":[{"role":"user","content":"Say hello."}]}'
 ```
 
-The full list, annotated, is in [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+**[Configuration →](docs/CONFIGURATION.md)** · **[Integration & deployment →](docs/OPERATIONS.md)**
 
-**Bare mode** is on by default: Claude Code's own identity and built-in tools are
-removed, and your `system` message becomes the entire system prompt — so the
-model behaves like the plain chat model your client expects. Turn it off
-(`claudegate serve --no-bare`) to expose the real coding agent, with file and
-shell access, through the same API.
+## 🔐 Access & compatibility
 
-## Security
+- **Keep access restricted.** The CLI uses permission bypass by default; coding-agent mode can execute code as the server user. Non-loopback binds require `CLAUDEGATE_API_KEY`.
+- **Separate end users.** Set OpenAI's `user` field for session isolation, or require it with `CLAUDEGATE_REUSE_REQUIRES_USER=true`. See the shared-key caveat in **[Security](docs/SECURITY.md)**.
+- **Compatibility has limits.** Some sampling parameters are accepted but ignored; `n > 1` is rejected. See **[Compatibility](docs/COMPATIBILITY.md)** and the Windows CLI notes in **[Operations](docs/OPERATIONS.md#platforms)**.
 
-The CLI is driven with permission bypass, so **anyone who can reach the port can
-run code as the user running this server**. Two things follow, both enforced:
+## 🧪 Development
 
-- binding anything other than loopback without `CLAUDEGATE_API_KEY` set is
-  refused at startup, with an explanation rather than a stack trace;
-- keys are compared in constant time, and `/health` and `/metrics` are the only
-  endpoints that never need one.
-
-### Conversation isolation
-
-Reuse matches a request against a live conversation's history, so two callers
-must not be able to collide. Two things prevent that:
-
-1. Conversations are partitioned by caller — the presented API key (hashed,
-   never logged) plus OpenAI's `user` field.
-2. Continuing one requires handing back the answer it actually produced. An
-   attacker can guess an opening — a published system prompt and a templated
-   first message is not a secret — but not what the model said.
-
-**The residual risk, stated plainly:** if one API key is shared by many end
-users *and* the reply to the opening turn is predictable (a fixed greeting), a
-caller who guesses both could land in someone else's conversation. Set `user`
-per end user — the OpenAI convention anyway — and the partition is exact. Or set
-`CLAUDEGATE_REUSE_REQUIRES_USER=true`, which declines to reuse anything for a
-request that omits it, or `CLAUDEGATE_REUSE_SESSIONS=false` to turn the whole
-optimisation off. Reuse is only ever a saving; a fresh conversation is always
-correct.
-
-## Testing your integration, without a CLI
-
-The fake CLI this project tests itself with is part of the package. It speaks
-the same control protocol — including the side where the CLI reaches back to
-invoke your tools — so you can test an integration end to end with no CLI, no
-token, no network, and no cost:
-
-```python
-from claudegate import create_app
-from claudegate.config import Settings
-from claudegate.testing import FakeClaudeCLI, Turn
-
-async def scenario(turn: Turn) -> None:
-    assert "weather" in turn.text                     # assert on what the model got
-    result = await turn.call_tool("get_weather", {"city": "Prague"})
-    await turn.say(f"It is {result}.")
-    await turn.end()
-
-app = create_app(Settings(), transport_factory=lambda: FakeClaudeCLI(scenario))
-```
-
-That is how the 131 tests in this repo run in a couple of seconds — on Linux,
-macOS and Windows alike, on a runner with no CLI installed.
-
-## Verifying a deployment
-
-Unit tests prove the code is right; these prove the *deployment* is right — the
-CLI is on `PATH`, its token is valid, subprocesses can spawn under your service
-manager, your reverse proxy isn't buffering the stream, images get through, and
-a tool loop can be resumed:
-
-```console
-$ claudegate smoke --base http://127.0.0.1:8080
-smoke → http://127.0.0.1:8080  model=sonnet
-
-  ✓ health            0.0s  status=200 sessions=0
-  ✓ models            0.0s  7 models, first=sonnet
-  ✓ text              2.3s  'PONG' prompt_tokens=233
-  ✓ stream            2.7s  8 frames, 20 chars over 2.2s
-  ✓ tools             3.3s  called lookup_status, resumed via continued
-  ✓ vision            3.9s  read 2437 and recalled it (reused)
-  ✓ session-reuse     4.1s  mode=reused, prompt_tokens 240 → 257
-  ✓ expired           2.2s  rebuilt and answered with the tool result
-
-8/8 passed — deployment looks healthy
-```
-
-The vision check draws a **freshly randomised number** into the image it sends,
-so a correct answer cannot be a lucky guess about what is usually in the picture.
-
-## Deployment
-
-```bash
-claudegate install-service --user claudegate --output /etc/systemd/system/claudegate.service
-systemd-analyze verify /etc/systemd/system/claudegate.service
-systemctl enable --now claudegate
-```
-
-The rendered unit gets the details that are easy to get wrong: restart limits in
-`[Unit]` where systemd actually reads them, `KillMode=mixed` so a stop lets
-in-flight turns finish instead of `SIGKILL`ing the cgroup, and `IS_SANDBOX=1`
-(see below). There is a `Dockerfile` and a `docker-compose.yml` too.
-
-Behind nginx, turn buffering off or streaming arrives in one lump at the end:
-
-```nginx
-location /v1/ {
-    proxy_pass http://127.0.0.1:8080;
-    proxy_buffering off;
-    proxy_read_timeout 900s;
-}
-```
-
-## Gotchas this handles for you
-
-- **Running as root.** The CLI refuses permission bypass as root and exits
-  without a word, which looks like a server that returns empty replies and logs
-  nothing. `claudegate` sets `IS_SANDBOX=1` for the CLI automatically.
-- **Auth that expires weeks later.** Copying `~/.claude/.credentials.json` into a
-  service account works until the CLI rotates it. `claudegate doctor` says so,
-  and points at `claude setup-token` for a long-lived token instead.
-- **A green `/health` on a broken server.** A liveness probe that never spawns
-  the CLI stays green through expired auth. `/health?deep=1` spends one real
-  completion and reports what came back.
-
-## Compatibility notes
-
-The CLI does not expose sampling controls, so `temperature`, `top_p`, `stop`,
-`seed` and the penalties are **accepted and ignored** rather than rejected —
-a client that always sends them keeps working. `n > 1` is rejected, because
-silently returning one choice would be worse. `reasoning_effort` is mapped onto
-the agent's thinking budget. Details in
-[docs/COMPATIBILITY.md](docs/COMPATIBILITY.md).
-
-- **Credentials that expired.** The CLI starts, accepts the message and then
-  emits nothing at all — which read as a timeout, and sent people to look at
-  their network. A turn that produces no output within
-  `FIRST_EVENT_TIMEOUT_S` is reported as what it almost always is: auth.
-
-## Requirements
-
-- Python 3.10+
-- Node.js 18+ and the [`claude`][cli] CLI on `PATH`, logged in
-
-### Two names, one project
-
-```bash
-pip install claude-code-openai   # the distribution
-claudegate serve                 # the command
-import claudegate                # the package
-```
-
-PyPI refuses `claudegate` as too similar to an unrelated `claude-gate`, so the
-distribution carries the descriptive name — which is also the one you would
-search for. Everything else is `claudegate`.
-
-## Platforms
-
-| Platform | Status |
-|---|---|
-| Linux | Supported, and what the live suite runs on. |
-| macOS | Supported. The test suite runs on the macOS runner in CI. |
-| Windows | Supported, with one caveat below. The suite runs on the Windows runner in CI. |
-
-The suite is hermetic — it fakes the CLI — so a green Windows job proves the
-server, the wire format and the bridge are portable. It does not exercise a
-real `claude.exe`; that part is verified on Linux.
-
-**Windows caveat.** `npm install -g @anthropic-ai/claude-code` installs a
-`claude.cmd` shim, and the SDK refuses to execute `.bat`/`.cmd` (arguments
-would pass through `cmd.exe`). Use the native build, or point
-`CLAUDEGATE_CLI_PATH` at `claude.exe`. `claudegate doctor` checks for exactly
-this rather than reporting a shim as usable. The server also needs a
-`ProactorEventLoop` to spawn the CLI — `claudegate serve` selects one; if you
-mount the ASGI app in another runner on Windows, make sure it does too.
-
-`install-service` renders a systemd unit, so it refuses to run off Linux unless
-you pass `--force` (useful when generating a unit for a remote host). On macOS
-use launchd; on Windows use NSSM or a Scheduled Task.
-
-## Development
+From a source checkout:
 
 ```bash
 pip install -e ".[dev]"
-pytest                                    # 131 tests, no CLI needed, ~3s
-CLAUDEGATE_LIVE_TESTS=1 pytest tests/live # the real thing
-ruff check src tests && ruff format --check src tests && mypy
+pytest
+ruff check src tests
+ruff format --check src tests
+mypy
 ```
 
-Built on Anthropic's official [Claude Agent SDK][sdk]. Architecture notes are in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+To check a running deployment, use `claudegate smoke --base http://127.0.0.1:8080`. This makes real model requests.
 
-## License
+---
 
-MIT — see [LICENSE](LICENSE). Not affiliated with Anthropic.
+**Python · FastAPI · Claude Agent SDK · MCP · Prometheus**
 
-[cli]: https://docs.anthropic.com/en/docs/claude-code
-[sdk]: https://github.com/anthropics/claude-agent-sdk-python
+**[MIT license](LICENSE)** · Not affiliated with Anthropic.
