@@ -2,7 +2,7 @@
 
 **Use the Claude Code CLI through an OpenAI-compatible chat API.**
 
-Connect existing chat clients and agent tools to Claude Code, with streaming responses and conversations that stay open between requests.
+Connect **Hermes Agent**, **OpenClaw** and other OpenAI-compatible clients to Claude Code, with streaming responses, tool calling and conversations that stay open between requests.
 
 ## ⚡ What it does
 
@@ -40,6 +40,14 @@ curl http://127.0.0.1:8080/v1/chat/completions \
 ```
 
 **[Configuration →](docs/CONFIGURATION.md)** · **[Integration & deployment →](docs/OPERATIONS.md)**
+
+## 🤝 Hermes Agent & OpenClaw
+
+- **Hermes Agent** — use Claudegate as a custom provider with `transport: chat_completions`.
+- **OpenClaw** — add a custom model provider with `api: "openai-completions"`.
+- **Both** — base URL `http://127.0.0.1:8080/v1`, model `sonnet`, `opus` or `haiku`. Keep bare mode enabled so the client owns tool execution.
+
+**[Setup examples & verification →](docs/AGENT_CLIENTS.md)**
 
 ## 🔐 Access & compatibility
 

@@ -53,6 +53,7 @@ def test_the_offline_doctor_runs_without_a_cli_or_a_token() -> None:
 
 def test_colour_is_off_when_it_would_be_mojibake(monkeypatch: pytest.MonkeyPatch) -> None:
     """A legacy Windows console prints the escape codes literally."""
+    monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     monkeypatch.setattr(os, "name", "nt")
     monkeypatch.delenv("WT_SESSION", raising=False)

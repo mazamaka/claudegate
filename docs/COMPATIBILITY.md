@@ -10,9 +10,12 @@ What a client can send, and what actually happens to it.
 | `GET /v1/models`, `GET /v1/models/{id}` | Yes |
 | `GET /health`, `/metrics` | Yes, no auth — they are cheap and probes need them |
 | `GET /health?deep=1` | Yes, but **requires the API key when one is set**: it spends a real completion and takes a session slot, so it is not free to strangers. Throttled to one probe per `DEEP_PROBE_INTERVAL_S`. |
+| `/v1/responses`, `/v1/messages` | Not implemented — configure clients for Chat Completions |
 | `/v1/completions` (legacy), `/v1/embeddings`, audio, images | Not implemented — the CLI has no equivalent |
 
 ## Request fields
+
+For **Hermes Agent** and **OpenClaw**, see the [custom-provider setup examples](AGENT_CLIENTS.md).
 
 | Field | Behaviour |
 |---|---|

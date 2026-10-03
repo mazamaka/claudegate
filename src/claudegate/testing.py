@@ -275,6 +275,8 @@ class FakeClaudeCLI(Transport):
         self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
         self._tasks: set[asyncio.Task[Any]] = set()
         self._ids = itertools.count(1)
+        self._mcp_initialized = False
+        self._mcp_init_lock = asyncio.Lock()
 
     # -- ids --------------------------------------------------------------
 
@@ -419,6 +421,40 @@ class FakeClaudeCLI(Transport):
 
     async def invoke_tool(self, full_name: str, arguments: dict[str, Any]) -> str:
         """Drive a real MCP ``tools/call`` back into the server."""
+        # Like the real CLI, complete the MCP handshake before calling tools.
+        # SDK versions that dispatch through a live MCP session enforce this;
+        # the older direct-dispatch implementation happened to accept calls first.
+        async with self._mcp_init_lock:
+            if not self._mcp_initialized:
+                await self._mcp_message(
+                    "initialize",
+                    {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {},
+                        "clientInfo": {"name": "claudegate-test-cli", "version": "1.0"},
+                    },
+                )
+                await self._mcp_message("notifications/initialized", notification=True)
+                self._mcp_initialized = True
+
+        payload = await self._mcp_message(
+            "tools/call", {"name": full_name.split("__", 2)[-1], "arguments": arguments}
+        )
+        content = ((payload.get("result") or {}).get("content")) or []
+        return "".join(part.get("text", "") for part in content if part.get("type") == "text")
+
+    async def _mcp_message(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        *,
+        notification: bool = False,
+    ) -> dict[str, Any]:
+        message: dict[str, Any] = {"jsonrpc": "2.0", "method": method}
+        if not notification:
+            message["id"] = next(self._ids)
+        if params is not None:
+            message["params"] = params
         request_id = self._next_request_id()
         future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
         self._pending[request_id] = future
@@ -429,18 +465,17 @@ class FakeClaudeCLI(Transport):
                 "request": {
                     "subtype": "mcp_message",
                     "server_name": "client",
-                    "message": {
-                        "jsonrpc": "2.0",
-                        "id": next(self._ids),
-                        "method": "tools/call",
-                        "params": {"name": full_name.split("__")[-1], "arguments": arguments},
-                    },
+                    "message": message,
                 },
             }
         )
-        response = await future
+        try:
+            response = await future
+        finally:
+            self._pending.pop(request_id, None)
         if response.get("subtype") == "error":
-            return f"[tool error] {response.get('error')}"
+            raise RuntimeError(f"MCP {method}: {response.get('error')}")
         payload = (response.get("response") or {}).get("mcp_response") or {}
-        content = ((payload.get("result") or {}).get("content")) or []
-        return "".join(part.get("text", "") for part in content if part.get("type") == "text")
+        if "error" in payload:
+            raise RuntimeError(f"MCP {method}: {payload['error']}")
+        return payload
